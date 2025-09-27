@@ -25,8 +25,23 @@ public class QrCodeService {
 
 
     // Get the currently active QR code
-    public Optional<QrCode> getActiveQrCode() {
+//    public Optional<QrCode> getActiveQrCode() {
+//        LocalDateTime now = LocalDateTime.now();
+//        return qrCodeRepository.findFirstByStartTimeBeforeAndEndTimeAfter(now, now);
+//    }
+
+    public Optional<QrCode> getActiveOrLastQr() {
         LocalDateTime now = LocalDateTime.now();
-        return qrCodeRepository.findFirstByStartTimeBeforeAndEndTimeAfter(now, now);
+
+        // Try to find an active QR first
+        Optional<QrCode> activeQr = qrCodeRepository.findFirstByStartTimeBeforeAndEndTimeAfter(now, now);
+        if (activeQr.isPresent()) {
+            return activeQr;
+        } else {
+            // Return the last generated QR regardless of current time
+            return qrCodeRepository.findFirstByOrderByStartTimeDesc();
+        }
     }
+
+
 }

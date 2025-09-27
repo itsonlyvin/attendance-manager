@@ -26,4 +26,6 @@ public interface QrCodeRepository extends JpaRepository<QrCode, Long> {
             LocalDateTime start,
             LocalDateTime end
     );
+
+    Optional<QrCode> findFirstByOrderByStartTimeDesc();
 }

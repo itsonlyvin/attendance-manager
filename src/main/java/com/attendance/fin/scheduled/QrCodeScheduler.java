@@ -38,7 +38,7 @@ import org.springframework.beans.factory.annotation.Autowired;
             System.out.println("IN QR generated: " + qr.getCode());
         }
 
-        // Generate OUT QR at 12:00 PM daily
+        // Generate OUT QR at 12:00 PM daily  @Scheduled(cron = "0 */3 * * * *")
         @Scheduled(cron = "0 0 12 * * *")
         public void generateOutQr() {
             LocalDateTime now = LocalDateTime.now();
