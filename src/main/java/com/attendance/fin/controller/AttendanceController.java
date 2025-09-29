@@ -1,6 +1,7 @@
 package com.attendance.fin.controller;
 
 
+import com.attendance.fin.service.impl.AttendanceDailyDetailService;
 import com.attendance.fin.service.impl.AttendanceMonthlyDetailService;
 import com.attendance.fin.service.impl.AttendanceReportService;
 import com.attendance.fin.service.impl.AttendanceService;
@@ -10,20 +11,23 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/attendance")
 public class AttendanceController {
 
+    private final AttendanceDailyDetailService dailyService;
     private final AttendanceService attendanceService;
     private final AttendanceReportService reportService;
     private final AttendanceMonthlyDetailService attendanceMonthlyDetailService;
     public AttendanceController(AttendanceService attendanceService,
-                                AttendanceReportService reportService, AttendanceMonthlyDetailService attendanceMonthlyDetailService) {
+                                AttendanceReportService reportService, AttendanceMonthlyDetailService attendanceMonthlyDetailService, AttendanceDailyDetailService dailyService) {
         this.attendanceService = attendanceService;
         this.reportService = reportService;
         this.attendanceMonthlyDetailService = attendanceMonthlyDetailService;
+        this.dailyService = dailyService;
     }
 
     @PostMapping("/in/{employeeId}")
@@ -97,5 +101,18 @@ public class AttendanceController {
 
 
 
+
+    @GetMapping("/daily/{employeeId}")
+    public AttendanceDailyDetailService.DailyAttendanceReport getDailyAttendance(
+            @PathVariable String employeeId,
+            @RequestParam String date) {
+
+        try {
+            LocalDate attendanceDate = LocalDate.parse(date);
+            return dailyService.getDailyAttendance(employeeId, attendanceDate);
+        } catch (DateTimeParseException e) {
+            throw new IllegalArgumentException("Invalid date format. Use yyyy-MM-dd");
+        }
+    }
 
 }
