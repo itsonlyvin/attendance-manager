@@ -125,7 +125,7 @@ public class HolidayService {
                     attendance.setPresent(false);
 
                 }
-                attendance.setAdminRemarks("Holiday: " + newReason);
+                attendance.setAdminRemarks("Holiday- " + newReason);
                 attendanceRepository.save(attendance);
 
 

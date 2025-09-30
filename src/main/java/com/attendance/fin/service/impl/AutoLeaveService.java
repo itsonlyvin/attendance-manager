@@ -23,7 +23,7 @@ public class AutoLeaveService {
      * Runs every day at 10:00 AM
      * Marks absent for employees who didn't mark in by 10:00
      */
-    @Scheduled(cron = "0 0 10 * * ?") // 10:00 AM every day
+    @Scheduled(cron = "0 0 1 * * ?") //
     public void markAbsentForMissedIn() {
         LocalDate today = LocalDate.now();
         List<Employee> employees = employeeRepository.findAll();
@@ -37,7 +37,7 @@ public class AutoLeaveService {
                 absent.setPresent(false);
                 absent.setHalfDay(false);
                 absent.setOvertimeAllowed(false);
-                absent.setAdminRemarks("Auto-marked absent (did not mark in before 10:00 AM)");
+                absent.setAdminRemarks("Auto-marked absent (did not mark in before 1:00 AM)");
                 absent.setHoliday(false);
                 // Optional: set default shift times
                 absent.setShiftStart(emp.isFinOpenArms() ? LocalTime.of(9,30) : LocalTime.of(9,0));
