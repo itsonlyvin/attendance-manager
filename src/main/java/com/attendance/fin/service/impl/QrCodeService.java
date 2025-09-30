@@ -24,11 +24,7 @@ public class QrCodeService {
 
 
 
-    // Get the currently active QR code
-//    public Optional<QrCode> getActiveQrCode() {
-//        LocalDateTime now = LocalDateTime.now();
-//        return qrCodeRepository.findFirstByStartTimeBeforeAndEndTimeAfter(now, now);
-//    }
+
 
     public Optional<QrCode> getActiveOrLastQr() {
         LocalDateTime now = LocalDateTime.now();

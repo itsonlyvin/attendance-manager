@@ -71,8 +71,8 @@ public class AttendanceService {
         attendance.setQrCodeIn(qrCode);
 
         // Shift timings
-        LocalTime shiftStart = employee.isFinOpenArms() ? LocalTime.of(9, 0) : LocalTime.of(9, 30);
-        LocalTime shiftEnd = employee.isFinOpenArms() ? LocalTime.of(17, 0) : LocalTime.of(17, 30);
+        LocalTime shiftStart = employee.isFinOpenArms() ? LocalTime.of(9, 30) : LocalTime.of(9, 0);
+        LocalTime shiftEnd = employee.isFinOpenArms() ? LocalTime.of(17, 30) : LocalTime.of(17, 0);
         attendance.setShiftStart(shiftStart);
         attendance.setShiftEnd(shiftEnd);
 

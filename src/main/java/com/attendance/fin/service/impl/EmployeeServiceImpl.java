@@ -69,7 +69,7 @@ public class EmployeeServiceImpl implements EmployeeService {
             int code = 1000 + new Random().nextInt(9000);
             employee.setEmailVerificationCode(String.valueOf(code));
             employee.setEmailVerified(false);
-            employee.setEmailVerificationExpiry(LocalDateTime.now().plusMinutes(1));
+            employee.setEmailVerificationExpiry(LocalDateTime.now().plusMinutes(10));
 
             employeeRepository.save(employee);
 
@@ -80,7 +80,7 @@ public class EmployeeServiceImpl implements EmployeeService {
                     .body("Error saving employee: " + e.getMessage());
         }
 
-        status.setRegistered(true);
+        status.setRegistered(false);
         employeeIdRepository.save(status);
 
         return ResponseEntity.status(HttpStatus.CREATED).body("Employee registered successfully. Verification email sent.");
@@ -125,9 +125,14 @@ public class EmployeeServiceImpl implements EmployeeService {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Invalid verification code.");
         }
 
+        EmployeeId status = employeeIdRepository.findById(employee.getEmployeeId()).orElse(null);
+        assert status != null;
+        status.setRegistered(true);
+
         employee.setEmailVerified(true);
         employee.setEmailVerificationCode(null);
         employee.setEmailVerificationExpiry(null);
+
         employeeRepository.save(employee);
 
         return ResponseEntity.ok("Email verified successfully.");
@@ -261,12 +266,12 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     @Override
     public ResponseEntity<List<Employee>> getFinEmployees() {
-        return ResponseEntity.ok(employeeRepository.findByFinOpenArmsFalse());
+        return ResponseEntity.ok(employeeRepository.findByFinOpenArmsTrue());
     }
 
     @Override
     public ResponseEntity<List<Employee>> getOpenArmsEmployees() {
-        return ResponseEntity.ok(employeeRepository.findByFinOpenArmsTrue());
+        return ResponseEntity.ok(employeeRepository.findByFinOpenArmsFalse());
     }
 
     @Override

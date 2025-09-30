@@ -29,7 +29,7 @@ public class Employee {
     private String password;
 
     @Column(nullable = false)
-    private boolean finOpenArms = false;
+    private boolean finOpenArms = false;  // true is fin and false is open arms
 
 
     @Column(nullable = false)
