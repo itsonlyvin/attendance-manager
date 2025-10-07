@@ -38,49 +38,46 @@ public class AttendanceReportService {
         int presentDays = 0;
         int halfDays = 0;
         int absentDays = 0;
-        int lateDays = 0;
-        int paidLeaveCount = 0; // includes holidays + admin-approved leaves + first free leave
         int holidayCount = 0;
-        boolean paidLeaveUsed = false; // track first leave
+        int paidLeaveCount = 0; // first auto leave + holidays
+        boolean paidLeaveUsed = false;
 
         double totalHoursWorked = 0.0;
         double totalOvertimeHours = 0.0;
         double overtimePay = 0.0;
 
         double dailySalary = emp.getSalary() / totalDaysInMonth;
-        double hourlySalary = dailySalary / 8.0;
+        double perHourRate = dailySalary / 8.0;
 
         List<DailyAttendance> dailyList = new ArrayList<>();
 
         for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
             Optional<Attendance> records = attendanceRepository.findByEmployeeAndDate(emp, date);
-
             DailyAttendance daily = new DailyAttendance();
             daily.setDate(date);
 
             if (records.isEmpty()) {
-                // No attendance record
                 boolean isHoliday = attendanceRepository.existsByIsHolidayTrueAndDate(date);
                 if (isHoliday) {
                     holidayCount++;
                     paidLeaveCount++;
                     daily.setStatus("Holiday");
                     daily.setHoliday(true);
+                    daily.setSalary(dailySalary);
+                } else if (!paidLeaveUsed) {
+                    paidLeaveUsed = true;
+                    paidLeaveCount++;
+                    daily.setStatus("Paid Leave (Auto)");
+                    daily.setSalary(dailySalary);
                 } else {
-                    if (!paidLeaveUsed) {
-                        paidLeaveUsed = true;
-                        paidLeaveCount++;
-                        daily.setStatus("Paid Leave (Auto)");
-                    } else {
-                        absentDays++;
-                        daily.setStatus("Absent");
-                    }
+                    absentDays++;
+                    daily.setStatus("Absent");
+                    daily.setSalary(0.0);
                 }
                 dailyList.add(daily);
                 continue;
             }
 
-            // Pick latest record if multiple exist
             Attendance a = records.stream()
                     .max(Comparator.comparing(Attendance::getClockIn, Comparator.nullsLast(Comparator.naturalOrder())))
                     .orElse(records.get());
@@ -92,49 +89,49 @@ public class AttendanceReportService {
             daily.setOvertimeAllowed(a.isOvertimeAllowed());
             daily.setAdminRemarks(a.getAdminRemarks());
 
+            double daySalary = 0.0;
+            double hoursWorked = a.getTotalHours() != null ? a.getTotalHours() : (a.isHalfDay() ? 4.0 : 8.0);
+
             if (a.isHoliday()) {
                 holidayCount++;
                 paidLeaveCount++;
                 daily.setStatus("Holiday");
                 daily.setHoliday(true);
+                daySalary = dailySalary;
             } else if (!a.isPresent()) {
                 if (!paidLeaveUsed) {
                     paidLeaveUsed = true;
                     paidLeaveCount++;
                     daily.setStatus("Paid Leave (Auto)");
+                    daySalary = dailySalary;
                 } else {
                     absentDays++;
                     daily.setStatus("Absent");
+                    daySalary = 0.0;
                 }
             } else if (a.isHalfDay()) {
                 halfDays++;
                 daily.setStatus("Half-day");
+                daySalary = Math.max((hoursWorked - 4) * perHourRate, 0); // half-day rule
             } else {
                 presentDays++;
                 daily.setStatus("Present");
-            }
+                daySalary = hoursWorked * perHourRate;
 
-            if (a.isLate() && !a.isHalfDay()) {
-                lateDays++;
-            }
-
-            if (a.getTotalHours() != null) {
-                totalHoursWorked += a.getTotalHours();
-                if (a.isOvertimeAllowed() && a.getTotalHours() > 8.0) {
-                    double overtimeHours = a.getTotalHours() - 8.0;
+                if (a.isOvertimeAllowed() && hoursWorked > 8.0) {
+                    double overtimeHours = hoursWorked - 8.0;
                     totalOvertimeHours += overtimeHours;
-                    overtimePay += hourlySalary * overtimeHours;
+                    overtimePay += overtimeHours * perHourRate;
                 }
             }
 
+            totalHoursWorked += hoursWorked;
+            daily.setSalary(daySalary);
             dailyList.add(daily);
         }
 
-        double salaryEarned = (dailySalary * presentDays)
-                + (dailySalary * 0.5 * halfDays)
-                + (dailySalary * paidLeaveCount) // includes holidays + first leave
-                + emp.getBonus()
-                + overtimePay;
+        double totalSalaryEarned = dailyList.stream().mapToDouble(DailyAttendance::getSalary).sum()
+                + emp.getBonus() + overtimePay;
 
         LocalDate today = LocalDate.now();
         int daysLeft = 0;
@@ -152,11 +149,10 @@ public class AttendanceReportService {
         report.setPresentDays(presentDays);
         report.setHalfDays(halfDays);
         report.setAbsentDays(absentDays);
-        report.setLateDays(lateDays);
         report.setPaidLeave(paidLeaveCount);
         report.setHolidayCount(holidayCount);
         report.setTotalHoursWorked(totalHoursWorked);
-        report.setSalaryEarned(salaryEarned);
+        report.setSalaryEarned(totalSalaryEarned);
         report.setBonusEarned(emp.getBonus());
         report.setTotalOvertimeHours(totalOvertimeHours);
         report.setOvertimePay(overtimePay);
@@ -177,8 +173,7 @@ public class AttendanceReportService {
         private int presentDays;
         private int halfDays;
         private int absentDays;
-        private int lateDays;
-        private int paidLeave; // includes holidays + first free leave
+        private int paidLeave;
         private int holidayCount;
         private double totalHoursWorked;
         private double salaryEarned;
@@ -200,5 +195,6 @@ public class AttendanceReportService {
         private String adminRemarks;
         private java.time.LocalDateTime clockIn;
         private java.time.LocalDateTime clockOut;
+        private double salary; // pro-rata salary
     }
 }

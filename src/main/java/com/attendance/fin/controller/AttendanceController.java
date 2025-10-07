@@ -53,17 +53,39 @@ public class AttendanceController {
     }
 
     @PostMapping("/admin/override")
-    public ResponseEntity<?> adminOverrideByEmp(@RequestParam String employeeId,
-                                                @RequestParam int year,
-                                                @RequestParam int month,
-                                                @RequestParam int day,
-                                                @RequestParam boolean allowOvertime,
-                                                @RequestParam boolean isPresent,
-                                                @RequestParam boolean halfDay,
-                                                @RequestParam(required = false) String remarks) {
+    public ResponseEntity<?> adminOverrideByEmp(
+            @RequestParam String employeeId,
+            @RequestParam int year,
+            @RequestParam int month,
+            @RequestParam int day,
+            @RequestParam boolean allowOvertime,
+            @RequestParam boolean isPresent,
+            @RequestParam(required = false) String remarks,
+            @RequestParam(required = false) String clockIn,   // format: "yyyy-MM-ddTHH:mm"
+            @RequestParam(required = false) String clockOut   // format: "yyyy-MM-ddTHH:mm"
+    ) {
+        java.time.LocalDateTime clockInTime = null;
+        java.time.LocalDateTime clockOutTime = null;
+
+        if (clockIn != null && !clockIn.isEmpty()) {
+            clockInTime = java.time.LocalDateTime.parse(clockIn);
+        }
+        if (clockOut != null && !clockOut.isEmpty()) {
+            clockOutTime = java.time.LocalDateTime.parse(clockOut);
+        }
 
         return ResponseEntity.ok(
-                attendanceService.adminOverrideByEmp(employeeId, year, month, day, allowOvertime, isPresent, halfDay,remarks)
+                attendanceService.adminOverrideByEmp(
+                        employeeId,
+                        year,
+                        month,
+                        day,
+                        allowOvertime,
+                        isPresent,
+                        remarks,
+                        clockInTime,
+                        clockOutTime
+                )
         );
     }
 
