@@ -69,11 +69,9 @@ public class AttendanceService {
         attendance.setShiftStart(shiftStart);
         attendance.setShiftEnd(shiftEnd);
 
-        // ✅ Lateness calculation
+        // ✅ Lateness calculation (without 4-hour block)
         Duration lateDuration = Duration.between(shiftStart, clockInTime.toLocalTime());
-        if (lateDuration.toMinutes() >= 4 * 60) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot mark in after 4 hours from shift start");
-        } else if (lateDuration.toMinutes() > LATE_LIMIT_MINUTES) {
+        if (lateDuration.toMinutes() > LATE_LIMIT_MINUTES) {
             // More than 5 mins late → Half day
             attendance.setHalfDay(true);
             attendance.setLate(true);
@@ -91,6 +89,7 @@ public class AttendanceService {
         attendance.setOvertimeAllowed(false);
         return attendanceRepository.save(attendance);
     }
+
 
     /**
      * Mark OUT
@@ -118,22 +117,20 @@ public class AttendanceService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not within company location to mark OUT");
         }
 
-        // Worked duration
-        Duration workedSoFar = Duration.between(attendance.getClockIn(), clockOutTime);
-        if (workedSoFar.toMinutes() < 4 * 60) { // cannot work less than 4 hours
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot clock out before 4 hours of work");
-        }
-
+        // Set OUT details
         attendance.setClockOut(clockOutTime);
         attendance.setQrCodeOut(qrCode);
         attendance.setLatitude(lat);
         attendance.setLongitude(lon);
 
+        // Worked duration (no 4-hour restriction)
+        Duration workedSoFar = Duration.between(attendance.getClockIn(), clockOutTime);
+
         // Total hours in decimals
         double hoursWorked = workedSoFar.toMinutes() / 60.0;
         attendance.setTotalHours(hoursWorked);
 
-        // If late > 5 mins → Half-day
+        // If late > 5 mins → Half-day adjustment
         if (attendance.isLate() && !attendance.isHalfDay()) {
             LocalTime shiftStart = attendance.getShiftStart();
             double lateMinutes = Duration.between(shiftStart, attendance.getClockIn().toLocalTime()).toMinutes();
@@ -144,6 +141,7 @@ public class AttendanceService {
 
         return attendanceRepository.save(attendance);
     }
+
 
     // ✅ Utility method for location validation
     private boolean isWithinCompanyLocation(double lat, double lon) {
