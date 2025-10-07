@@ -249,8 +249,8 @@ public class EmployeeServiceImpl implements EmployeeService {
         Employee data = employeeRepository.findById(employeeId).orElse(null);
         if (data == null) return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Employee ID not found");
 
-        if (!data.isEmailVerified())
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Email not verified. Please check your inbox.");
+//        if (!data.isEmailVerified())
+//            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Email not verified. Please check your inbox.");
 
         if (passwordEncoder.matches(password, data.getPassword())) {
             return ResponseEntity.ok("Login successful");
@@ -297,6 +297,17 @@ public class EmployeeServiceImpl implements EmployeeService {
             return ResponseEntity.ok("Bonus updated successfully.");
         } else {
             return ResponseEntity.status(404).body("Employee not found.");
+        }
+    }
+
+
+
+    @Override
+    public void deleteEmployeeById(String employeeId) {
+        if (employeeRepository.existsById(employeeId)) {
+            employeeRepository.deleteById(employeeId);
+        } else {
+            throw new RuntimeException("Employee with ID " + employeeId + " not found");
         }
     }
 }

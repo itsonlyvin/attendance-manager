@@ -35,4 +35,6 @@ public interface EmployeeService {
     ResponseEntity<String> setSalary(String employeeId, double salary);
 
     ResponseEntity<String> setBonus(String employeeId, double bonus);
+
+    void deleteEmployeeById(String employeeId);
 }

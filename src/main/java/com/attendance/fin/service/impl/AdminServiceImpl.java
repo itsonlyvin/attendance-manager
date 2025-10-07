@@ -121,9 +121,9 @@ public class AdminServiceImpl implements AdminService {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Admin ID not found");
         }
 
-        if (!data.isEmailVerified()) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Please verify your email first.");
-        }
+//        if (!data.isEmailVerified()) {
+//            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Please verify your email first.");
+//        }
 
         if (passwordEncoder.matches(password, data.getPassword())) {
             return ResponseEntity.ok("Login successful");

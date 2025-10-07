@@ -111,4 +111,14 @@ public class EmployeeController {
         return employeeService.setBonus(employeeId, bonus);
     }
 
+    @DeleteMapping("/{id}")
+    public ResponseEntity<String> deleteEmployee(@PathVariable("id") String employeeId) {
+        try {
+            employeeService.deleteEmployeeById(employeeId);
+            return ResponseEntity.ok("Employee deleted successfully.");
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(404).body(e.getMessage());
+        }
+    }
+
 }

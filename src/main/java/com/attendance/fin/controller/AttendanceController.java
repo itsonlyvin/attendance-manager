@@ -1,6 +1,7 @@
 package com.attendance.fin.controller;
 
 
+import com.attendance.fin.model.Attendance;
 import com.attendance.fin.service.impl.AttendanceDailyDetailService;
 import com.attendance.fin.service.impl.AttendanceMonthlyDetailService;
 import com.attendance.fin.service.impl.AttendanceReportService;
@@ -60,6 +61,7 @@ public class AttendanceController {
             @RequestParam int day,
             @RequestParam boolean allowOvertime,
             @RequestParam boolean isPresent,
+            @RequestParam boolean halfDay, // added halfDay parameter
             @RequestParam(required = false) String remarks,
             @RequestParam(required = false) String clockIn,   // format: "yyyy-MM-ddTHH:mm"
             @RequestParam(required = false) String clockOut   // format: "yyyy-MM-ddTHH:mm"
@@ -74,21 +76,21 @@ public class AttendanceController {
             clockOutTime = java.time.LocalDateTime.parse(clockOut);
         }
 
-        return ResponseEntity.ok(
-                attendanceService.adminOverrideByEmp(
-                        employeeId,
-                        year,
-                        month,
-                        day,
-                        allowOvertime,
-                        isPresent,
-                        remarks,
-                        clockInTime,
-                        clockOutTime
-                )
+        Attendance updatedAttendance = attendanceService.adminOverrideByEmp(
+                employeeId,
+                year,
+                month,
+                day,
+                allowOvertime,
+                isPresent,
+                halfDay,      // pass halfDay to service
+                remarks,
+                clockInTime,
+                clockOutTime
         );
-    }
 
+        return ResponseEntity.ok(updatedAttendance);
+    }
 
 
     @GetMapping("/report/{employeeId}")

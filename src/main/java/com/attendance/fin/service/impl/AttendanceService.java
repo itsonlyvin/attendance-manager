@@ -174,6 +174,7 @@ public class AttendanceService {
             int day,
             boolean allowOvertime,
             boolean isPresent,
+            boolean halfDay,
             String remarks,
             java.time.LocalDateTime clockIn,
             java.time.LocalDateTime clockOut
@@ -196,7 +197,8 @@ public class AttendanceService {
 
         // Update attendance details
         attendance.setOvertimeAllowed(allowOvertime);
-        attendance.setPresent(isPresent);
+        attendance.setPresent(isPresent); // explicitly set
+        attendance.setHalfDay(halfDay); // explicitly set half-day if passed
         attendance.setAdminRemarks(remarks);
 
         // Update clock-in/out if provided
@@ -207,13 +209,21 @@ public class AttendanceService {
             attendance.setClockOut(clockOut);
         }
 
-        // Recalculate total hours and half-day status
+        // Recalculate total hours and adjust half-day/presence
         if (attendance.getClockIn() != null && attendance.getClockOut() != null) {
             double hoursWorked = java.time.Duration.between(attendance.getClockIn(), attendance.getClockOut()).toMinutes() / 60.0;
             attendance.setTotalHours(hoursWorked);
 
-            // Automatically mark as half-day if hours < 8
-            attendance.setHalfDay(hoursWorked < 8.0);
+            // If not explicitly half-day, automatically set based on hours
+            if (!halfDay) {
+                attendance.setHalfDay(hoursWorked < 8.0);
+            }
+
+            // If explicitly marked present/absent, honor that
+            if (!isPresent) {
+                attendance.setHalfDay(false);
+                attendance.setTotalHours(0.0);
+            }
         }
 
         return attendanceRepository.save(attendance);
