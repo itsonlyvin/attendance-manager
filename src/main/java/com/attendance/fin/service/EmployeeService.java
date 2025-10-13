@@ -3,6 +3,7 @@ package com.attendance.fin.service;
 import com.attendance.fin.model.Employee;
 import org.springframework.http.ResponseEntity;
 
+import java.time.LocalTime;
 import java.util.List;
 
 public interface EmployeeService {
@@ -37,4 +38,10 @@ public interface EmployeeService {
     ResponseEntity<String> setBonus(String employeeId, double bonus);
 
     void deleteEmployeeById(String employeeId);
+
+    // Set or update shift timings
+    Employee setShiftTimes(String employeeId, LocalTime shiftStart, LocalTime shiftEnd);
+
+    // Get shift timings
+    Employee getShiftTimes(String employeeId);
 }

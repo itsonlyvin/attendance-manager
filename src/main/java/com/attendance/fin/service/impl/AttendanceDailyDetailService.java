@@ -32,13 +32,18 @@ public class AttendanceDailyDetailService {
 
         if (optionalAttendance.isPresent()) {
             Attendance attendance = optionalAttendance.get();
-            report.setStatus(attendance.isHoliday() ? "Holiday" :
-                    attendance.isPresent() ? (attendance.isHalfDay() ? "Half-day" : "Present")
-                            : "Absent");
+
+            report.setStatus(
+                    attendance.isHoliday() ? "Holiday" :
+                            attendance.isPresent() ? (attendance.isHalfDay() ? "Half-day" : "Present")
+                                    : "Absent"
+            );
+
             report.setClockIn(attendance.getClockIn());
             report.setClockOut(attendance.getClockOut());
             report.setAdminRemarks(attendance.getAdminRemarks());
             report.setTotalHours(attendance.getTotalHours());
+            report.setWorkedDurationFormatted(attendance.getWorkedDurationFormatted()); // ✅ added
             report.setOvertimeEnabled(attendance.isOvertimeAllowed());
         } else {
             report.setStatus("No Data");
@@ -55,21 +60,33 @@ public class AttendanceDailyDetailService {
         private java.time.LocalDateTime clockOut;
         private String adminRemarks;
         private Double totalHours;
+        private String workedDurationFormatted; // ✅ new field
         private Boolean overtimeEnabled;
 
         // Getters and Setters
         public LocalDate getDate() { return date; }
         public void setDate(LocalDate date) { this.date = date; }
+
         public String getStatus() { return status; }
         public void setStatus(String status) { this.status = status; }
+
         public java.time.LocalDateTime getClockIn() { return clockIn; }
         public void setClockIn(java.time.LocalDateTime clockIn) { this.clockIn = clockIn; }
+
         public java.time.LocalDateTime getClockOut() { return clockOut; }
         public void setClockOut(java.time.LocalDateTime clockOut) { this.clockOut = clockOut; }
+
         public String getAdminRemarks() { return adminRemarks; }
         public void setAdminRemarks(String adminRemarks) { this.adminRemarks = adminRemarks; }
+
         public Double getTotalHours() { return totalHours; }
         public void setTotalHours(Double totalHours) { this.totalHours = totalHours; }
+
+        public String getWorkedDurationFormatted() { return workedDurationFormatted; }
+        public void setWorkedDurationFormatted(String workedDurationFormatted) {
+            this.workedDurationFormatted = workedDurationFormatted;
+        }
+
         public Boolean getOvertimeEnabled() { return overtimeEnabled; }
         public void setOvertimeEnabled(Boolean overtimeEnabled) { this.overtimeEnabled = overtimeEnabled; }
     }

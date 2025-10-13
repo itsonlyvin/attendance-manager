@@ -2,9 +2,11 @@ package com.attendance.fin.controller;
 
 import com.attendance.fin.model.Employee;
 import com.attendance.fin.service.EmployeeService;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 
@@ -119,6 +121,23 @@ public class EmployeeController {
         } catch (RuntimeException e) {
             return ResponseEntity.status(404).body(e.getMessage());
         }
+    }
+
+
+    // API to set shift start and end times
+    @PutMapping("/{id}/shift")
+    public Employee setShiftTimes(
+            @PathVariable("id") String employeeId,
+            @RequestParam("start") @DateTimeFormat(pattern = "HH:mm") LocalTime shiftStart,
+            @RequestParam("end") @DateTimeFormat(pattern = "HH:mm") LocalTime shiftEnd) {
+
+        return employeeService.setShiftTimes(employeeId, shiftStart, shiftEnd);
+    }
+
+    // API to get employee shift times
+    @GetMapping("/{id}/shift")
+    public Employee getShiftTimes(@PathVariable("id") String employeeId) {
+        return employeeService.getShiftTimes(employeeId);
     }
 
 }

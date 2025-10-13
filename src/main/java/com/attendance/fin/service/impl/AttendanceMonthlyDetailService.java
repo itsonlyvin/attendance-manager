@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
+
 @Service
 public class AttendanceMonthlyDetailService {
 
@@ -101,8 +102,24 @@ public class AttendanceMonthlyDetailService {
         private LocalDateTime clockOut;
         private String adminRemarks;
         private Double totalHours;
-        private Boolean overtimeEnabled; // <-- NEW
+        private Boolean overtimeEnabled;
 
+        // ✅ Derived human-readable duration
+        public String getWorkedDurationFormatted() {
+            if (totalHours == null) return null;
+
+            int hours = totalHours.intValue();
+            int minutes = (int) Math.round((totalHours - hours) * 60);
+
+            if (minutes == 60) { // edge case
+                hours += 1;
+                minutes = 0;
+            }
+
+            return String.format("%dh %02dm", hours, minutes);
+        }
+
+        // --- Getters & Setters ---
         public LocalDate getDate() { return date; }
         public void setDate(LocalDate date) { this.date = date; }
 

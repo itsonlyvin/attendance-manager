@@ -20,10 +20,10 @@ public class AutoLeaveService {
     private final AttendanceRepository attendanceRepository;
 
     /**
-     * Runs every day at 10:00 AM
-     * Marks absent for employees who didn't mark in by 10:00
+     * Runs every day at 12.00 PM
+     *  Marks absent for employees who didn't mark in by 12:00
      */
-    @Scheduled(cron = "0 0 1 * * ?") //
+    @Scheduled(cron = "0 0 12 * * ?") //
     public void markAbsentForMissedIn() {
         LocalDate today = LocalDate.now();
         List<Employee> employees = employeeRepository.findAll();
@@ -37,11 +37,11 @@ public class AutoLeaveService {
                 absent.setPresent(false);
                 absent.setHalfDay(false);
                 absent.setOvertimeAllowed(false);
-                absent.setAdminRemarks("Auto-marked absent (did not mark in before 1:00 AM)");
+                absent.setAdminRemarks("Auto-marked absent (did not mark in before 12:00 PM)");
                 absent.setHoliday(false);
                 // Optional: set default shift times
-                absent.setShiftStart(emp.isFinOpenArms() ? LocalTime.of(9,30) : LocalTime.of(9,0));
-                absent.setShiftEnd(emp.isFinOpenArms() ? LocalTime.of(17,30) : LocalTime.of(17,0));
+//                absent.setShiftStart(emp.isFinOpenArms() ? LocalTime.of(9,30) : LocalTime.of(9,0));
+//                absent.setShiftEnd(emp.isFinOpenArms() ? LocalTime.of(17,30) : LocalTime.of(17,0));
 
                 attendanceRepository.save(absent);
             }

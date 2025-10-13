@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 @Entity
 @Table(name = "employees")
@@ -48,6 +49,15 @@ public class Employee {
     @Column()
     private double bonus = 0;
 
+    // ✅ Shift timings (only time of day)
+    @Column(name = "shift_start")
+    private LocalTime shiftStart;
+
+    @Column(name = "shift_end")
+    private LocalTime shiftEnd;
+
+
+    
 
     public Employee(String employeeId, String fullName, String phoneNumber, String companyEmail, String password, boolean finOpenArms, boolean emailVerified, String emailVerificationCode, LocalDateTime emailVerificationExpiry, double salary, double bonus) {
         this.employeeId = employeeId;

@@ -18,15 +18,16 @@ public class AttendanceService {
     private final EmployeeRepository employeeRepository;
 
     // Distance threshold in meters (for location validation)
-    private static final double DISTANCE_THRESHOLD_METERS = 10.0;
+    private static final double DISTANCE_THRESHOLD_METERS = 15.0;
     private static final int LATE_LIMIT_MINUTES = 5;
 
-    private static final String FIXED_QR = "FIXEDQR123"; // same for IN and OUT
+    private static final String FIXED_QR = "FIXEDQR123";    // same for IN and OUT
 
     public AttendanceService(AttendanceRepository attendanceRepository, EmployeeRepository employeeRepository) {
         this.attendanceRepository = attendanceRepository;
         this.employeeRepository = employeeRepository;
     }
+
 
     /**
      * Mark IN
@@ -58,35 +59,47 @@ public class AttendanceService {
             attendance.setDate(today);
         }
 
-        attendance.setClockIn(clockInTime);
+        // ✅ Set clockIn
+        LocalTime nowTime = clockInTime.toLocalTime();
+        attendance.setClockIn(today.atTime(nowTime));
+
         attendance.setLatitude(lat);
         attendance.setLongitude(lon);
         attendance.setQrCodeIn(qrCode);
 
-        // Shift timings
-        LocalTime shiftStart = employee.isFinOpenArms() ? LocalTime.of(9, 30) : LocalTime.of(9, 0);
-        LocalTime shiftEnd = employee.isFinOpenArms() ? LocalTime.of(17, 30) : LocalTime.of(17, 0);
+        // ✅ Shift timings
+        LocalTime shiftStart = employee.getShiftStart() != null
+                ? employee.getShiftStart()
+                : (employee.isFinOpenArms() ? LocalTime.of(9, 30) : LocalTime.of(9, 0));
+
+        LocalTime shiftEnd = employee.getShiftEnd() != null
+                ? employee.getShiftEnd()
+                : (employee.isFinOpenArms() ? LocalTime.of(17, 30) : LocalTime.of(17, 0));
+
         attendance.setShiftStart(shiftStart);
         attendance.setShiftEnd(shiftEnd);
 
-        // ✅ Lateness calculation (without 4-hour block)
-        Duration lateDuration = Duration.between(shiftStart, clockInTime.toLocalTime());
+        // ✅ Lateness calculation
+        Duration lateDuration = Duration.between(shiftStart, nowTime);
         if (lateDuration.toMinutes() > LATE_LIMIT_MINUTES) {
-            // More than 5 mins late → Half day
             attendance.setHalfDay(true);
             attendance.setLate(true);
         } else if (lateDuration.toMinutes() > 0) {
-            // Between 1 and 5 mins late → Late only
             attendance.setLate(true);
             attendance.setHalfDay(false);
         } else {
-            // On time → Not late, not half-day
             attendance.setHalfDay(false);
             attendance.setLate(false);
         }
 
+        // ✅ Clear old remarks
+        attendance.setAdminRemarks(null);
+
         attendance.setPresent(true);
         attendance.setOvertimeAllowed(false);
+
+        // ✅ totalHours will be set later in markOut, workedDurationFormatted is derived automatically
+
         return attendanceRepository.save(attendance);
     }
 
@@ -98,9 +111,9 @@ public class AttendanceService {
         Employee employee = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Employee not found"));
 
-        LocalDate date = clockOutTime.toLocalDate();
+        LocalDate today = clockOutTime.toLocalDate();
 
-        Attendance attendance = attendanceRepository.findByEmployeeAndDate(employee, date)
+        Attendance attendance = attendanceRepository.findByEmployeeAndDate(employee, today)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "You need to mark IN first"));
 
         if (attendance.getClockOut() != null) {
@@ -117,40 +130,54 @@ public class AttendanceService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not within company location to mark OUT");
         }
 
-        // Set OUT details
-        attendance.setClockOut(clockOutTime);
+        // Clock-out time
+        LocalTime nowTime = clockOutTime.toLocalTime();
+        attendance.setClockOut(today.atTime(nowTime));
+
         attendance.setQrCodeOut(qrCode);
         attendance.setLatitude(lat);
         attendance.setLongitude(lon);
 
-        // Worked duration (no 4-hour restriction)
-        Duration workedSoFar = Duration.between(attendance.getClockIn(), clockOutTime);
+        // Shift timings
+        LocalTime shiftStart = attendance.getShiftStart() != null
+                ? attendance.getShiftStart()
+                : (employee.getShiftStart() != null ? employee.getShiftStart()
+                : (employee.isFinOpenArms() ? LocalTime.of(9, 30) : LocalTime.of(9, 0)));
 
-        // Total hours in decimals
+        LocalTime shiftEnd = attendance.getShiftEnd() != null
+                ? attendance.getShiftEnd()
+                : (employee.getShiftEnd() != null ? employee.getShiftEnd()
+                : (employee.isFinOpenArms() ? LocalTime.of(17, 30) : LocalTime.of(17, 0)));
+
+        attendance.setShiftStart(shiftStart);
+        attendance.setShiftEnd(shiftEnd);
+
+        // Calculate worked hours
+        Duration workedSoFar = Duration.between(attendance.getClockIn(), attendance.getClockOut());
         double hoursWorked = workedSoFar.toMinutes() / 60.0;
         attendance.setTotalHours(hoursWorked);
 
-        // If late > 5 mins → Half-day adjustment
-        if (attendance.isLate() && !attendance.isHalfDay()) {
-            LocalTime shiftStart = attendance.getShiftStart();
-            double lateMinutes = Duration.between(shiftStart, attendance.getClockIn().toLocalTime()).toMinutes();
-            hoursWorked = Math.min(hoursWorked + (lateMinutes / 60.0), 8.0);
-        }
-
-        attendance.setTotalHours(hoursWorked);
+        // ✅ workedDurationFormatted is now automatically available via the derived getter
 
         return attendanceRepository.save(attendance);
     }
 
 
-    // ✅ Utility method for location validation
+
+
+    /**
+     *  Utility method for location validation
+      */
     private boolean isWithinCompanyLocation(double lat, double lon) {
         // Replace with real implementation
-        double companyLat = 8.506960;
-        double companyLon = 76.933847;
+        double companyLat = 8.506964;
+        double companyLon = 76.933837;
         return distanceInMeters(lat, lon, companyLat, companyLon) <= DISTANCE_THRESHOLD_METERS;
     }
 
+    /**
+     *  Utility method for distance calculation
+     */
     private double distanceInMeters(double lat1, double lon1, double lat2, double lon2) {
         final int R = 6371000; // Earth radius in meters
         double dLat = Math.toRadians(lat2 - lat1);
@@ -161,6 +188,7 @@ public class AttendanceService {
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return R * c;
     }
+
 
     /**
      * Admin override
@@ -228,7 +256,7 @@ public class AttendanceService {
     }
 
     /**
-     * generateMonthlyReport
+     * GenerateMonthlyReport
      */
     public MonthlyAttendanceReport generateMonthlyReport(Employee employee, YearMonth month) {
         LocalDate start = month.atDay(1);

@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
@@ -310,4 +311,29 @@ public class EmployeeServiceImpl implements EmployeeService {
             throw new RuntimeException("Employee with ID " + employeeId + " not found");
         }
     }
+
+
+    // Set or update shift timings
+    @Override
+    public Employee setShiftTimes(String employeeId, LocalTime shiftStart, LocalTime shiftEnd) {
+        Optional<Employee> optionalEmployee = employeeRepository.findById(employeeId);
+
+        if (optionalEmployee.isEmpty()) {
+            throw new RuntimeException("Employee not found with ID: " + employeeId);
+        }
+
+        Employee employee = optionalEmployee.get();
+        employee.setShiftStart(shiftStart);
+        employee.setShiftEnd(shiftEnd);
+
+        return employeeRepository.save(employee);
+    }
+
+    // Get shift timings
+    @Override
+    public Employee getShiftTimes(String employeeId) {
+        return employeeRepository.findById(employeeId)
+                .orElseThrow(() -> new RuntimeException("Employee not found with ID: " + employeeId));
+    }
 }
+
