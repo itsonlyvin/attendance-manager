@@ -10,10 +10,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class AttendanceReportService {
@@ -35,29 +33,43 @@ public class AttendanceReportService {
         LocalDate endDate = yearMonth.atEndOfMonth();
         int totalDaysInMonth = yearMonth.lengthOfMonth();
 
+        // ✅ Load all attendance data for the month (1 DB call)
+        List<Attendance> allRecords = attendanceRepository.findByEmployeeAndDateBetween(emp, startDate, endDate);
+
+        // ✅ Load all holidays for the month (1 DB call)
+        List<Attendance> allHolidays = attendanceRepository.findByIsHolidayTrueAndDateBetween(startDate, endDate);
+
+        // ✅ Pre-group attendances by date for O(1) lookup
+        Map<LocalDate, List<Attendance>> attendanceByDate = allRecords.stream()
+                .collect(Collectors.groupingBy(Attendance::getDate));
+
+        double dailySalary = emp.getSalary() / totalDaysInMonth;
+        double perHourRate = dailySalary / 8.0;
+
         int presentDays = 0;
         int halfDays = 0;
         int absentDays = 0;
         int holidayCount = 0;
-        int paidLeaveCount = 0; // first auto leave + holidays
+        int paidLeaveCount = 0;
         boolean paidLeaveUsed = false;
 
         double totalHoursWorked = 0.0;
         double totalOvertimeHours = 0.0;
         double overtimePay = 0.0;
 
-        double dailySalary = emp.getSalary() / totalDaysInMonth;
-        double perHourRate = dailySalary / 8.0;
-
         List<DailyAttendance> dailyList = new ArrayList<>();
 
         for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
-            Optional<Attendance> records = attendanceRepository.findByEmployeeAndDate(emp, date);
             DailyAttendance daily = new DailyAttendance();
             daily.setDate(date);
 
-            if (records.isEmpty()) {
-                boolean isHoliday = attendanceRepository.existsByIsHolidayTrueAndDate(date);
+            List<Attendance> dayRecords = attendanceByDate.getOrDefault(date, Collections.emptyList());
+
+            if (dayRecords.isEmpty()) {
+
+                LocalDate finalDate = date;
+                boolean isHoliday = allHolidays.stream().anyMatch(h -> h.getDate().equals(finalDate));
+
                 if (isHoliday) {
                     holidayCount++;
                     paidLeaveCount++;
@@ -74,13 +86,15 @@ public class AttendanceReportService {
                     daily.setStatus("Absent");
                     daily.setSalary(0.0);
                 }
+
                 dailyList.add(daily);
                 continue;
             }
 
-            Attendance a = records.stream()
+            // ✅ Find the latest attendance record for the day
+            Attendance a = dayRecords.stream()
                     .max(Comparator.comparing(Attendance::getClockIn, Comparator.nullsLast(Comparator.naturalOrder())))
-                    .orElse(records.get());
+                    .orElse(dayRecords.getFirst());
 
             daily.setClockIn(a.getClockIn());
             daily.setClockOut(a.getClockOut());
@@ -89,8 +103,8 @@ public class AttendanceReportService {
             daily.setOvertimeAllowed(a.isOvertimeAllowed());
             daily.setAdminRemarks(a.getAdminRemarks());
 
-            double daySalary = 0.0;
             double hoursWorked = a.getTotalHours() != null ? a.getTotalHours() : (a.isHalfDay() ? 4.0 : 8.0);
+            double daySalary;
 
             if (a.isHoliday()) {
                 holidayCount++;
@@ -112,7 +126,7 @@ public class AttendanceReportService {
             } else if (a.isHalfDay()) {
                 halfDays++;
                 daily.setStatus("Half-day");
-                daySalary = Math.max((hoursWorked - 4) * perHourRate, 0); // half-day rule
+                daySalary = Math.max((hoursWorked - 4) * perHourRate, 0);
             } else {
                 presentDays++;
                 daily.setStatus("Present");
@@ -125,11 +139,12 @@ public class AttendanceReportService {
                 }
             }
 
-            totalHoursWorked += hoursWorked;
             daily.setSalary(daySalary);
+            totalHoursWorked += hoursWorked;
             dailyList.add(daily);
         }
 
+        // ✅ Final calculations
         double totalSalaryEarned = dailyList.stream().mapToDouble(DailyAttendance::getSalary).sum()
                 + emp.getBonus() + overtimePay;
 
@@ -139,6 +154,7 @@ public class AttendanceReportService {
             daysLeft = endDate.getDayOfMonth() - today.getDayOfMonth();
         }
 
+        // ✅ Build report
         AttendanceReport report = new AttendanceReport();
         report.setEmployeeId(employeeId);
         report.setEmployeeName(emp.getFullName());
@@ -160,6 +176,8 @@ public class AttendanceReportService {
 
         return report;
     }
+
+    // ✅ Inner classes for report response
 
     @Getter
     @Setter
@@ -195,6 +213,6 @@ public class AttendanceReportService {
         private String adminRemarks;
         private java.time.LocalDateTime clockIn;
         private java.time.LocalDateTime clockOut;
-        private double salary; // pro-rata salary
+        private double salary;
     }
 }

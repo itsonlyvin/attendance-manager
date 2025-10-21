@@ -11,10 +11,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class SalaryService {
@@ -31,18 +29,28 @@ public class SalaryService {
         List<Employee> employees = employeeRepository.findAll();
         List<EmployeeSalary> salaryList = new ArrayList<>();
 
+        // ✅ Load all holidays for the given month (1 query total)
+        YearMonth ym = YearMonth.of(year, month);
+        LocalDate start = ym.atDay(1);
+        LocalDate end = ym.atEndOfMonth();
+        Set<LocalDate> holidays = attendanceRepository.findByIsHolidayTrueAndDateBetween(start, end)
+                .stream()
+                .map(Attendance::getDate)
+                .collect(Collectors.toSet());
+
+        // ✅ Process each employee efficiently
         for (Employee emp : employees) {
-            double totalSalary = calculateSalary(emp, year, month);
+            // Fetch all attendances for this employee once
+            List<Attendance> monthlyRecords = attendanceRepository.findByEmployeeAndDateBetween(emp, start, end);
+            double totalSalary = calculateSalary(emp, monthlyRecords, holidays, year, month);
             salaryList.add(new EmployeeSalary(emp.getFullName(), totalSalary));
         }
 
         return salaryList;
     }
 
-    private double calculateSalary(Employee emp, int year, int month) {
+    private double calculateSalary(Employee emp, List<Attendance> monthlyRecords, Set<LocalDate> holidays, int year, int month) {
         YearMonth yearMonth = YearMonth.of(year, month);
-        LocalDate startDate = yearMonth.atDay(1);
-        LocalDate endDate = yearMonth.atEndOfMonth();
         int totalDaysInMonth = yearMonth.lengthOfMonth();
 
         double dailySalary = emp.getSalary() / totalDaysInMonth;
@@ -50,20 +58,24 @@ public class SalaryService {
         boolean paidLeaveUsed = false;
         double totalSalary = 0.0;
 
-        for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
-            Optional<Attendance> records = attendanceRepository.findByEmployeeAndDate(emp, date);
-            double daySalary = 0.0;
+        // ✅ Group all attendance by date (fast lookup)
+        Map<LocalDate, List<Attendance>> attendanceByDate = monthlyRecords.stream()
+                .collect(Collectors.groupingBy(Attendance::getDate));
 
-            if (records.isEmpty()) {
-                boolean isHoliday = attendanceRepository.existsByIsHolidayTrueAndDate(date);
-                if (isHoliday || !paidLeaveUsed) {
+        // ✅ Iterate through each date of the month
+        for (LocalDate date = yearMonth.atDay(1); !date.isAfter(yearMonth.atEndOfMonth()); date = date.plusDays(1)) {
+            double daySalary = 0.0;
+            List<Attendance> records = attendanceByDate.get(date);
+
+            if (records == null || records.isEmpty()) {
+                if (holidays.contains(date) || !paidLeaveUsed) {
                     daySalary = dailySalary;
-                    if (!isHoliday) paidLeaveUsed = true;
-                } // else Absent, daySalary = 0
+                    if (!holidays.contains(date)) paidLeaveUsed = true;
+                }
             } else {
                 Attendance a = records.stream()
                         .max(Comparator.comparing(Attendance::getClockIn, Comparator.nullsLast(Comparator.naturalOrder())))
-                        .orElse(records.get());
+                        .orElse(records.getFirst());
 
                 double hoursWorked = a.getTotalHours() != null ? a.getTotalHours() : (a.isHalfDay() ? 4.0 : 8.0);
 
@@ -75,7 +87,7 @@ public class SalaryService {
                         paidLeaveUsed = true;
                     }
                 } else if (a.isHalfDay()) {
-                    daySalary = Math.max((hoursWorked - 4) * perHourRate, 0); // half-day rule
+                    daySalary = Math.max((hoursWorked - 4) * perHourRate, 0);
                 } else {
                     daySalary = hoursWorked * perHourRate;
 
