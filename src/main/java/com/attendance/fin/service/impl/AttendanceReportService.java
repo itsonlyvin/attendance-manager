@@ -33,13 +33,9 @@ public class AttendanceReportService {
         LocalDate endDate = yearMonth.atEndOfMonth();
         int totalDaysInMonth = yearMonth.lengthOfMonth();
 
-        // ✅ Load all attendance data for the month (1 DB call)
         List<Attendance> allRecords = attendanceRepository.findByEmployeeAndDateBetween(emp, startDate, endDate);
-
-        // ✅ Load all holidays for the month (1 DB call)
         List<Attendance> allHolidays = attendanceRepository.findByIsHolidayTrueAndDateBetween(startDate, endDate);
 
-        // ✅ Pre-group attendances by date for O(1) lookup
         Map<LocalDate, List<Attendance>> attendanceByDate = allRecords.stream()
                 .collect(Collectors.groupingBy(Attendance::getDate));
 
@@ -66,7 +62,6 @@ public class AttendanceReportService {
             List<Attendance> dayRecords = attendanceByDate.getOrDefault(date, Collections.emptyList());
 
             if (dayRecords.isEmpty()) {
-
                 LocalDate finalDate = date;
                 boolean isHoliday = allHolidays.stream().anyMatch(h -> h.getDate().equals(finalDate));
 
@@ -91,10 +86,10 @@ public class AttendanceReportService {
                 continue;
             }
 
-            // ✅ Find the latest attendance record for the day
+            // Find the latest attendance record for the day safely
             Attendance a = dayRecords.stream()
                     .max(Comparator.comparing(Attendance::getClockIn, Comparator.nullsLast(Comparator.naturalOrder())))
-                    .orElse(dayRecords.getFirst());
+                    .orElse(dayRecords.get(0));
 
             daily.setClockIn(a.getClockIn());
             daily.setClockOut(a.getClockOut());
@@ -144,7 +139,6 @@ public class AttendanceReportService {
             dailyList.add(daily);
         }
 
-        // ✅ Final calculations
         double totalSalaryEarned = dailyList.stream().mapToDouble(DailyAttendance::getSalary).sum()
                 + emp.getBonus() + overtimePay;
 
@@ -154,7 +148,6 @@ public class AttendanceReportService {
             daysLeft = endDate.getDayOfMonth() - today.getDayOfMonth();
         }
 
-        // ✅ Build report
         AttendanceReport report = new AttendanceReport();
         report.setEmployeeId(employeeId);
         report.setEmployeeName(emp.getFullName());
@@ -176,8 +169,6 @@ public class AttendanceReportService {
 
         return report;
     }
-
-    // ✅ Inner classes for report response
 
     @Getter
     @Setter
@@ -205,7 +196,7 @@ public class AttendanceReportService {
     @Setter
     public static class DailyAttendance {
         private LocalDate date;
-        private String status; // Present, Half-day, Absent, Holiday, Paid Leave (Auto)
+        private String status;
         private boolean halfDay;
         private boolean late;
         private boolean holiday;

@@ -29,18 +29,18 @@ public class SalaryService {
         List<Employee> employees = employeeRepository.findAll();
         List<EmployeeSalary> salaryList = new ArrayList<>();
 
-        // ✅ Load all holidays for the given month (1 query total)
         YearMonth ym = YearMonth.of(year, month);
         LocalDate start = ym.atDay(1);
         LocalDate end = ym.atEndOfMonth();
+
+        // Fetch all holidays once
         Set<LocalDate> holidays = attendanceRepository.findByIsHolidayTrueAndDateBetween(start, end)
                 .stream()
                 .map(Attendance::getDate)
                 .collect(Collectors.toSet());
 
-        // ✅ Process each employee efficiently
+        // Process each employee
         for (Employee emp : employees) {
-            // Fetch all attendances for this employee once
             List<Attendance> monthlyRecords = attendanceRepository.findByEmployeeAndDateBetween(emp, start, end);
             double totalSalary = calculateSalary(emp, monthlyRecords, holidays, year, month);
             salaryList.add(new EmployeeSalary(emp.getFullName(), totalSalary));
@@ -58,24 +58,27 @@ public class SalaryService {
         boolean paidLeaveUsed = false;
         double totalSalary = 0.0;
 
-        // ✅ Group all attendance by date (fast lookup)
+        // Group attendances by date
         Map<LocalDate, List<Attendance>> attendanceByDate = monthlyRecords.stream()
                 .collect(Collectors.groupingBy(Attendance::getDate));
 
-        // ✅ Iterate through each date of the month
+        // Iterate through each day
         for (LocalDate date = yearMonth.atDay(1); !date.isAfter(yearMonth.atEndOfMonth()); date = date.plusDays(1)) {
             double daySalary = 0.0;
-            List<Attendance> records = attendanceByDate.get(date);
+            List<Attendance> records = attendanceByDate.getOrDefault(date, Collections.emptyList());
 
-            if (records == null || records.isEmpty()) {
-                if (holidays.contains(date) || !paidLeaveUsed) {
+            if (records.isEmpty()) {
+                if (holidays.contains(date)) {
                     daySalary = dailySalary;
-                    if (!holidays.contains(date)) paidLeaveUsed = true;
+                } else if (!paidLeaveUsed) {
+                    daySalary = dailySalary;
+                    paidLeaveUsed = true;
                 }
             } else {
+                // Pick the latest attendance record
                 Attendance a = records.stream()
                         .max(Comparator.comparing(Attendance::getClockIn, Comparator.nullsLast(Comparator.naturalOrder())))
-                        .orElse(records.getFirst());
+                        .orElse(records.get(0));
 
                 double hoursWorked = a.getTotalHours() != null ? a.getTotalHours() : (a.isHalfDay() ? 4.0 : 8.0);
 
