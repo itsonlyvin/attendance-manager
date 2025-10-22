@@ -22,7 +22,7 @@ public class ConnectionMonitorService {
     @Value("${sendgrid.from-email}")
     private String fromEmail;
 
-    private final String toEmail = "vinayak448v@gamil.com"; // recipient
+    private final String toEmail = "vinayak448v@gmail.com"; // recipient
 
     private final int WARNING_THRESHOLD = 50; // adjust based on your Supabase tier
 
