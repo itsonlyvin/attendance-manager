@@ -8,8 +8,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
-import java.time.YearMonth;
+import java.time.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -61,6 +60,7 @@ public class AttendanceReportService {
 
             List<Attendance> dayRecords = attendanceByDate.getOrDefault(date, Collections.emptyList());
 
+            // 🟠 No attendance for this date
             if (dayRecords.isEmpty()) {
                 LocalDate finalDate = date;
                 boolean isHoliday = allHolidays.stream().anyMatch(h -> h.getDate().equals(finalDate));
@@ -86,7 +86,7 @@ public class AttendanceReportService {
                 continue;
             }
 
-            // Find the latest attendance record for the day safely
+            // ✅ Get latest attendance of the day
             Attendance a = dayRecords.stream()
                     .max(Comparator.comparing(Attendance::getClockIn, Comparator.nullsLast(Comparator.naturalOrder())))
                     .orElse(dayRecords.get(0));
@@ -99,8 +99,16 @@ public class AttendanceReportService {
             daily.setAdminRemarks(a.getAdminRemarks());
 
             double hoursWorked = a.getTotalHours() != null ? a.getTotalHours() : (a.isHalfDay() ? 4.0 : 8.0);
-            double daySalary;
+            double shiftHours = 8.0;
 
+            if (a.getShiftStart() != null && a.getShiftEnd() != null) {
+                shiftHours = Duration.between(a.getShiftStart(), a.getShiftEnd()).toHours();
+            }
+
+            double daySalary;
+            double paidHours;
+
+            // ✅ Handle holidays and presence
             if (a.isHoliday()) {
                 holidayCount++;
                 paidLeaveCount++;
@@ -125,12 +133,23 @@ public class AttendanceReportService {
             } else {
                 presentDays++;
                 daily.setStatus("Present");
-                daySalary = hoursWorked * perHourRate;
 
-                if (a.isOvertimeAllowed() && hoursWorked > 8.0) {
-                    double overtimeHours = hoursWorked - 8.0;
+                if (a.isOvertimeAllowed()) {
+                    // Pay full worked hours
+                    paidHours = hoursWorked;
+                } else {
+                    // Cap to shift hours
+                    paidHours = Math.min(hoursWorked, shiftHours);
+                }
+
+                daySalary = paidHours * perHourRate;
+
+                // Count overtime hours only for reporting
+                if (a.isOvertimeAllowed() && hoursWorked > shiftHours) {
+                    double overtimeHours = hoursWorked - shiftHours;
                     totalOvertimeHours += overtimeHours;
-                    overtimePay += overtimeHours * perHourRate;
+                    // 👇 Only for report visibility (not double paid)
+                    overtimePay += 0;
                 }
             }
 
@@ -139,8 +158,9 @@ public class AttendanceReportService {
             dailyList.add(daily);
         }
 
+        // ✅ Total monthly summary
         double totalSalaryEarned = dailyList.stream().mapToDouble(DailyAttendance::getSalary).sum()
-                + emp.getBonus() + overtimePay;
+                + emp.getBonus();
 
         LocalDate today = LocalDate.now();
         int daysLeft = 0;
@@ -169,6 +189,8 @@ public class AttendanceReportService {
 
         return report;
     }
+
+    // ============================ INNER CLASSES ============================
 
     @Getter
     @Setter
