@@ -47,7 +47,7 @@ public class AttendanceReportService {
         int absentDays = 0;
         int holidayCount = 0;
         int paidLeaveCount = 0;
-        int noClockOutDays = 0;  // 🟢 NEW field
+        int noClockOutDays = 0;
         boolean paidLeaveUsed = false;
         double totalHoursWorked = 0.0;
         double totalOvertimeHours = 0.0;
@@ -127,32 +127,32 @@ public class AttendanceReportService {
                 }
 
             } else {
-                // ✅ Employee was present
-                double perDaySalary = 0.0;
-
-                if (a.isHalfDay()) {
-                    // 🌗 Half-Day Logic (13:00–17:00 for 9–17 shift)
+                // ✅ Employee was marked present
+                if (a.getClockIn() == null && a.getClockOut() == null) {
+                    // 🟢 Admin manually marked as present
+                    presentDays++;
+                    daily.setStatus("Present");
+                    daySalary = dailySalary;
+                }
+                else if (a.getClockIn() != null && a.getClockOut() == null) {
+                    // 🟠 Employee forgot to clock out
+                    presentDays++;
+                    noClockOutDays++;
+                    daily.setStatus("No Clock-Out");
+                    daySalary = dailySalary; // ✅ still pay full-day salary
+                }
+                else if (a.isHalfDay()) {
+                    // 🌗 Half-Day logic
                     halfDays++;
                     daily.setStatus("Half-day");
 
                     LocalTime shiftStart = a.getShiftStart() != null ? a.getShiftStart() : LocalTime.of(9, 0);
                     LocalTime shiftEnd = a.getShiftEnd() != null ? a.getShiftEnd() : LocalTime.of(17, 0);
-
                     double totalShiftHours = Duration.between(shiftStart, shiftEnd).toHours();
                     LocalTime halfDayStart = shiftStart.plusHours((long) (totalShiftHours / 2));
                     LocalTime halfDayEnd = shiftEnd;
 
                     double halfDayHours = Duration.between(halfDayStart, halfDayEnd).toMinutes() / 60.0;
-
-                    // 🟠 Missing clock-out handling
-                    if (a.getClockOut() == null) {
-                        daily.setStatus("No Clock-Out");
-                        daily.setSalary(0.0);
-                        absentDays++;
-                        noClockOutDays++; // 🟢 Count it
-                        dailyList.add(daily);
-                        continue;
-                    }
 
                     double actualHoursWorked = Duration.between(
                             a.getClockIn().toLocalTime(),
@@ -160,23 +160,12 @@ public class AttendanceReportService {
                     ).toMinutes() / 60.0;
 
                     double payableHours = Math.min(actualHoursWorked, halfDayHours);
-                    perDaySalary = payableHours * perHourRate;
-                    daySalary = perDaySalary;
+                    daySalary = payableHours * perHourRate;
 
-                } else {
-                    // ✅ Full Day Calculation
+                }
+                else {
+                    // ✅ Full Day normal case
                     presentDays++;
-
-                    // 🟠 Missing clock-out handling
-                    if (a.getClockOut() == null) {
-                        daily.setStatus("No Clock-Out");
-                        daily.setSalary(0.0);
-                        absentDays++;
-                        noClockOutDays++; // 🟢 Count it
-                        dailyList.add(daily);
-                        continue;
-                    }
-
                     daily.setStatus("Present");
 
                     LocalTime shiftStart = a.getShiftStart() != null ? a.getShiftStart() : LocalTime.of(9, 0);
@@ -196,8 +185,7 @@ public class AttendanceReportService {
                         totalOvertimeHours += overtimeHours;
                     }
 
-                    perDaySalary = payableHours * perHourRate;
-                    daySalary = perDaySalary;
+                    daySalary = payableHours * perHourRate;
                 }
             }
 
@@ -229,7 +217,7 @@ public class AttendanceReportService {
         report.setAbsentDays(absentDays);
         report.setPaidLeave(paidLeaveCount);
         report.setHolidayCount(holidayCount);
-        report.setNoClockOutDays(noClockOutDays); // 🟢 include in final report
+        report.setNoClockOutDays(noClockOutDays);
         report.setTotalHoursWorked(totalHoursWorked);
         report.setSalaryEarned(totalSalaryEarned);
         report.setBonusEarned(emp.getBonus());
@@ -256,7 +244,7 @@ public class AttendanceReportService {
         private int absentDays;
         private int paidLeave;
         private int holidayCount;
-        private int noClockOutDays; // 🟢 New Field
+        private int noClockOutDays;
         private double totalHoursWorked;
         private double salaryEarned;
         private double bonusEarned;
