@@ -24,6 +24,7 @@ public class AttendanceReportService {
     }
 
     public AttendanceReport generateMonthlyReport(String employeeId, int year, int month) {
+
         Employee emp = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
 
@@ -46,8 +47,8 @@ public class AttendanceReportService {
         int absentDays = 0;
         int holidayCount = 0;
         int paidLeaveCount = 0;
+        int noClockOutDays = 0;  // 🟢 NEW field
         boolean paidLeaveUsed = false;
-
         double totalHoursWorked = 0.0;
         double totalOvertimeHours = 0.0;
         double overtimePay = 0.0;
@@ -60,7 +61,7 @@ public class AttendanceReportService {
 
             List<Attendance> dayRecords = attendanceByDate.getOrDefault(date, Collections.emptyList());
 
-            // 🟠 No attendance for this date
+            // 🟠 No attendance found for this date
             if (dayRecords.isEmpty()) {
                 LocalDate finalDate = date;
                 boolean isHoliday = allHolidays.stream().anyMatch(h -> h.getDate().equals(finalDate));
@@ -81,7 +82,6 @@ public class AttendanceReportService {
                     daily.setStatus("Absent");
                     daily.setSalary(0.0);
                 }
-
                 dailyList.add(daily);
                 continue;
             }
@@ -98,15 +98,13 @@ public class AttendanceReportService {
             daily.setOvertimeAllowed(a.isOvertimeAllowed());
             daily.setAdminRemarks(a.getAdminRemarks());
 
-            double hoursWorked = a.getTotalHours() != null ? a.getTotalHours() : (a.isHalfDay() ? 4.0 : 8.0);
+            double daySalary = 0.0;
+            double hoursWorked = a.getTotalHours() != null ? a.getTotalHours() : 0.0;
             double shiftHours = 8.0;
 
             if (a.getShiftStart() != null && a.getShiftEnd() != null) {
                 shiftHours = Duration.between(a.getShiftStart(), a.getShiftEnd()).toHours();
             }
-
-            double daySalary;
-            double paidHours;
 
             // ✅ Handle holidays and presence
             if (a.isHoliday()) {
@@ -115,6 +113,7 @@ public class AttendanceReportService {
                 daily.setStatus("Holiday");
                 daily.setHoliday(true);
                 daySalary = dailySalary;
+
             } else if (!a.isPresent()) {
                 if (!paidLeaveUsed) {
                     paidLeaveUsed = true;
@@ -126,30 +125,79 @@ public class AttendanceReportService {
                     daily.setStatus("Absent");
                     daySalary = 0.0;
                 }
-            } else if (a.isHalfDay()) {
-                halfDays++;
-                daily.setStatus("Half-day");
-                daySalary = Math.max((hoursWorked - 4) * perHourRate, 0);
+
             } else {
-                presentDays++;
-                daily.setStatus("Present");
+                // ✅ Employee was present
+                double perDaySalary = 0.0;
 
-                if (a.isOvertimeAllowed()) {
-                    // Pay full worked hours
-                    paidHours = hoursWorked;
+                if (a.isHalfDay()) {
+                    // 🌗 Half-Day Logic (13:00–17:00 for 9–17 shift)
+                    halfDays++;
+                    daily.setStatus("Half-day");
+
+                    LocalTime shiftStart = a.getShiftStart() != null ? a.getShiftStart() : LocalTime.of(9, 0);
+                    LocalTime shiftEnd = a.getShiftEnd() != null ? a.getShiftEnd() : LocalTime.of(17, 0);
+
+                    double totalShiftHours = Duration.between(shiftStart, shiftEnd).toHours();
+                    LocalTime halfDayStart = shiftStart.plusHours((long) (totalShiftHours / 2));
+                    LocalTime halfDayEnd = shiftEnd;
+
+                    double halfDayHours = Duration.between(halfDayStart, halfDayEnd).toMinutes() / 60.0;
+
+                    // 🟠 Missing clock-out handling
+                    if (a.getClockOut() == null) {
+                        daily.setStatus("No Clock-Out");
+                        daily.setSalary(0.0);
+                        absentDays++;
+                        noClockOutDays++; // 🟢 Count it
+                        dailyList.add(daily);
+                        continue;
+                    }
+
+                    double actualHoursWorked = Duration.between(
+                            a.getClockIn().toLocalTime(),
+                            a.getClockOut().toLocalTime()
+                    ).toMinutes() / 60.0;
+
+                    double payableHours = Math.min(actualHoursWorked, halfDayHours);
+                    perDaySalary = payableHours * perHourRate;
+                    daySalary = perDaySalary;
+
                 } else {
-                    // Cap to shift hours
-                    paidHours = Math.min(hoursWorked, shiftHours);
-                }
+                    // ✅ Full Day Calculation
+                    presentDays++;
 
-                daySalary = paidHours * perHourRate;
+                    // 🟠 Missing clock-out handling
+                    if (a.getClockOut() == null) {
+                        daily.setStatus("No Clock-Out");
+                        daily.setSalary(0.0);
+                        absentDays++;
+                        noClockOutDays++; // 🟢 Count it
+                        dailyList.add(daily);
+                        continue;
+                    }
 
-                // Count overtime hours only for reporting
-                if (a.isOvertimeAllowed() && hoursWorked > shiftHours) {
-                    double overtimeHours = hoursWorked - shiftHours;
-                    totalOvertimeHours += overtimeHours;
-                    // 👇 Only for report visibility (not double paid)
-                    overtimePay += 0;
+                    daily.setStatus("Present");
+
+                    LocalTime shiftStart = a.getShiftStart() != null ? a.getShiftStart() : LocalTime.of(9, 0);
+                    LocalTime shiftEnd = a.getShiftEnd() != null ? a.getShiftEnd() : LocalTime.of(17, 0);
+
+                    double workedHours = Duration.between(
+                            a.getClockIn().toLocalTime(),
+                            a.getClockOut().toLocalTime()
+                    ).toMinutes() / 60.0;
+
+                    double payableHours = Math.min(workedHours, shiftHours);
+
+                    // 💪 Add overtime if allowed
+                    if (a.isOvertimeAllowed() && a.getClockOut().toLocalTime().isAfter(shiftEnd)) {
+                        double overtimeHours = Duration.between(shiftEnd, a.getClockOut().toLocalTime()).toMinutes() / 60.0;
+                        payableHours += overtimeHours;
+                        totalOvertimeHours += overtimeHours;
+                    }
+
+                    perDaySalary = payableHours * perHourRate;
+                    daySalary = perDaySalary;
                 }
             }
 
@@ -159,8 +207,9 @@ public class AttendanceReportService {
         }
 
         // ✅ Total monthly summary
-        double totalSalaryEarned = dailyList.stream().mapToDouble(DailyAttendance::getSalary).sum()
-                + emp.getBonus();
+        double totalSalaryEarned = dailyList.stream()
+                .mapToDouble(DailyAttendance::getSalary)
+                .sum() + emp.getBonus();
 
         LocalDate today = LocalDate.now();
         int daysLeft = 0;
@@ -180,6 +229,7 @@ public class AttendanceReportService {
         report.setAbsentDays(absentDays);
         report.setPaidLeave(paidLeaveCount);
         report.setHolidayCount(holidayCount);
+        report.setNoClockOutDays(noClockOutDays); // 🟢 include in final report
         report.setTotalHoursWorked(totalHoursWorked);
         report.setSalaryEarned(totalSalaryEarned);
         report.setBonusEarned(emp.getBonus());
@@ -206,6 +256,7 @@ public class AttendanceReportService {
         private int absentDays;
         private int paidLeave;
         private int holidayCount;
+        private int noClockOutDays; // 🟢 New Field
         private double totalHoursWorked;
         private double salaryEarned;
         private double bonusEarned;
@@ -224,8 +275,8 @@ public class AttendanceReportService {
         private boolean holiday;
         private boolean overtimeAllowed;
         private String adminRemarks;
-        private java.time.LocalDateTime clockIn;
-        private java.time.LocalDateTime clockOut;
+        private LocalDateTime clockIn;
+        private LocalDateTime clockOut;
         private double salary;
     }
 }
