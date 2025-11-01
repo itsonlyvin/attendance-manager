@@ -232,6 +232,9 @@ public class AttendanceService {
         if (clockIn != null) attendance.setClockIn(clockIn);
         if (clockOut != null) attendance.setClockOut(clockOut);
 
+        // Default late = false
+        attendance.setLate(false);
+
         // Calculate working hours if both times exist
         if (attendance.getClockIn() != null && attendance.getClockOut() != null) {
             double hoursWorked = Duration.between(
@@ -239,20 +242,35 @@ public class AttendanceService {
             ).toMinutes() / 60.0;
             attendance.setTotalHours(hoursWorked);
 
-            // Auto-adjust presence & half-day only if not forced by admin
+            // ✅ Calculate shift duration dynamically
+            LocalTime shiftStart = emp.getShiftStart() != null ? emp.getShiftStart() :
+                    (emp.isFinOpenArms() ? LocalTime.of(9, 30) : LocalTime.of(9, 0));
+
+            LocalTime shiftEnd = emp.getShiftEnd() != null ? emp.getShiftEnd() :
+                    (emp.isFinOpenArms() ? LocalTime.of(17, 30) : LocalTime.of(17, 0));
+
+            double shiftHours = Duration.between(shiftStart, shiftEnd).toMinutes() / 60.0;
+
+            // ✅ Late detection (5-min tolerance)
+            LocalTime clockInTime = attendance.getClockIn().toLocalTime();
+            if (clockInTime.isAfter(shiftStart.plusMinutes(5))) {
+                attendance.setLate(true);
+            }
+
+            // ✅ Auto-adjust presence/half-day if not forced
             if (isPresent) {
                 if (!halfDay) {
-                    if (hoursWorked < 4) {
+                    if (hoursWorked < shiftHours / 2) {
                         attendance.setPresent(false);
                         attendance.setHalfDay(false);
-                    } else if (hoursWorked < 8) {
+                    } else if (hoursWorked < shiftHours) {
                         attendance.setHalfDay(true);
                     } else {
                         attendance.setHalfDay(false);
                     }
                 }
             } else {
-                // If marked absent, override everything
+                // Marked absent → no salary hours
                 attendance.setHalfDay(false);
                 attendance.setTotalHours(0.0);
             }
@@ -264,9 +282,10 @@ public class AttendanceService {
             }
         }
 
-
         return attendanceRepository.save(attendance);
     }
+
+
 
 
     /**
