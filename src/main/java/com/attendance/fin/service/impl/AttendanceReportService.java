@@ -100,7 +100,10 @@ public class AttendanceReportService {
 
             double daySalary = 0.0;
             double hoursWorked = a.getTotalHours() != null ? a.getTotalHours() : 0.0;
-            double shiftHours = 8.0;
+            LocalTime shiftStart1 = a.getShiftStart() != null ? a.getShiftStart() : LocalTime.of(9, 0);
+            LocalTime shiftEnd1 = a.getShiftEnd() != null ? a.getShiftEnd() : LocalTime.of(17, 0);
+            double shiftHours = Duration.between(shiftStart1, shiftEnd1).toHours();
+
 
             if (a.getShiftStart() != null && a.getShiftEnd() != null) {
                 shiftHours = Duration.between(a.getShiftStart(), a.getShiftEnd()).toHours();
