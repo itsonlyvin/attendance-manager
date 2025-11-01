@@ -39,8 +39,13 @@ public class AttendanceReportService {
         Map<LocalDate, List<Attendance>> attendanceByDate = allRecords.stream()
                 .collect(Collectors.groupingBy(Attendance::getDate));
 
+// ✅ Use actual shift duration (default to 9:00–17:00 if missing)
+        LocalTime defaultShiftStart = emp.getShiftStart() != null ? emp.getShiftStart() : LocalTime.of(9, 0);
+        LocalTime defaultShiftEnd = emp.getShiftEnd() != null ? emp.getShiftEnd() : LocalTime.of(17, 0);
+        double shiftHours1 = Duration.between(defaultShiftStart, defaultShiftEnd).toMinutes() / 60.0;
+
         double dailySalary = emp.getSalary() / totalDaysInMonth;
-        double perHourRate = dailySalary / 8.0;
+        double perHourRate = dailySalary / shiftHours1;
 
         int presentDays = 0;
         int halfDays = 0;
