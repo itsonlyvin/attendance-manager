@@ -202,17 +202,16 @@ public class AttendanceService {
             boolean isPresent,
             boolean halfDay,
             String remarks,
-            java.time.LocalDateTime clockIn,
-            java.time.LocalDateTime clockOut
+            LocalDateTime clockIn,
+            LocalDateTime clockOut
     ) {
-
         LocalDate date = LocalDate.of(year, month, day);
 
         // Fetch the employee
         Employee emp = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
 
-        // Fetch existing attendance or create new
+        // Fetch or create attendance
         Attendance attendance = attendanceRepository.findByEmployeeAndDate(emp, date)
                 .orElseGet(() -> {
                     Attendance newAttendance = new Attendance();
@@ -221,39 +220,54 @@ public class AttendanceService {
                     return newAttendance;
                 });
 
-        // Update attendance details
+        // Update base details
         attendance.setOvertimeAllowed(allowOvertime);
-        attendance.setPresent(isPresent); // explicitly set
-        attendance.setHalfDay(halfDay); // explicitly set half-day if passed
-        attendance.setAdminRemarks(remarks);
+        attendance.setAdminRemarks(remarks != null ? remarks.trim() : null);
+
+        // Explicitly update presence and half-day
+        attendance.setPresent(isPresent);
+        attendance.setHalfDay(halfDay);
 
         // Update clock-in/out if provided
-        if (clockIn != null) {
-            attendance.setClockIn(clockIn);
-        }
-        if (clockOut != null) {
-            attendance.setClockOut(clockOut);
-        }
+        if (clockIn != null) attendance.setClockIn(clockIn);
+        if (clockOut != null) attendance.setClockOut(clockOut);
 
-        // Recalculate total hours and adjust half-day/presence
+        // Calculate working hours if both times exist
         if (attendance.getClockIn() != null && attendance.getClockOut() != null) {
-            double hoursWorked = java.time.Duration.between(attendance.getClockIn(), attendance.getClockOut()).toMinutes() / 60.0;
+            double hoursWorked = Duration.between(
+                    attendance.getClockIn(), attendance.getClockOut()
+            ).toMinutes() / 60.0;
             attendance.setTotalHours(hoursWorked);
 
-            // If not explicitly half-day, automatically set based on hours
-            if (!halfDay) {
-                attendance.setHalfDay(hoursWorked < 8.0);
-            }
-
-            // If explicitly marked present/absent, honor that
-            if (!isPresent) {
+            // Auto-adjust presence & half-day only if not forced by admin
+            if (isPresent) {
+                if (!halfDay) {
+                    if (hoursWorked < 4) {
+                        attendance.setPresent(false);
+                        attendance.setHalfDay(false);
+                    } else if (hoursWorked < 8) {
+                        attendance.setHalfDay(true);
+                    } else {
+                        attendance.setHalfDay(false);
+                    }
+                }
+            } else {
+                // If marked absent, override everything
                 attendance.setHalfDay(false);
                 attendance.setTotalHours(0.0);
             }
+        } else {
+            // Missing either clock-in or clock-out → no valid work hours
+            attendance.setTotalHours(0.0);
+            if (isPresent && !halfDay) {
+                attendance.setHalfDay(true); // treat as half-day if partial data
+            }
         }
+
 
         return attendanceRepository.save(attendance);
     }
+
 
     /**
      * GenerateMonthlyReport
