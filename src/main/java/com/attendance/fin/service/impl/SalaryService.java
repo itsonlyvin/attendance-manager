@@ -9,8 +9,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
-import java.time.YearMonth;
+import java.time.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -29,73 +28,122 @@ public class SalaryService {
         List<Employee> employees = employeeRepository.findAll();
         List<EmployeeSalary> salaryList = new ArrayList<>();
 
-        YearMonth ym = YearMonth.of(year, month);
-        LocalDate start = ym.atDay(1);
-        LocalDate end = ym.atEndOfMonth();
+        YearMonth yearMonth = YearMonth.of(year, month);
+        LocalDate startDate = yearMonth.atDay(1);
+        LocalDate endDate = yearMonth.atEndOfMonth();
 
         // Fetch all holidays once
-        Set<LocalDate> holidays = attendanceRepository.findByIsHolidayTrueAndDateBetween(start, end)
-                .stream()
+        List<Attendance> holidayRecords = attendanceRepository.findByIsHolidayTrueAndDateBetween(startDate, endDate);
+        Set<LocalDate> holidays = holidayRecords.stream()
                 .map(Attendance::getDate)
                 .collect(Collectors.toSet());
 
         // Process each employee
         for (Employee emp : employees) {
-            List<Attendance> monthlyRecords = attendanceRepository.findByEmployeeAndDateBetween(emp, start, end);
-            double totalSalary = calculateSalary(emp, monthlyRecords, holidays, year, month);
+            List<Attendance> records = attendanceRepository.findByEmployeeAndDateBetween(emp, startDate, endDate);
+            double totalSalary = calculateEmployeeSalary(emp, records, holidays, year, month);
             salaryList.add(new EmployeeSalary(emp.getFullName(), totalSalary));
         }
 
         return salaryList;
     }
 
-    private double calculateSalary(Employee emp, List<Attendance> monthlyRecords, Set<LocalDate> holidays, int year, int month) {
+    private double calculateEmployeeSalary(Employee emp, List<Attendance> monthlyRecords, Set<LocalDate> holidays, int year, int month) {
         YearMonth yearMonth = YearMonth.of(year, month);
+        LocalDate startDate = yearMonth.atDay(1);
+        LocalDate endDate = yearMonth.atEndOfMonth();
         int totalDaysInMonth = yearMonth.lengthOfMonth();
 
+        // Default shift hours
+        LocalTime shiftStart = emp.getShiftStart() != null ? emp.getShiftStart() : LocalTime.of(9, 0);
+        LocalTime shiftEnd = emp.getShiftEnd() != null ? emp.getShiftEnd() : LocalTime.of(17, 0);
+        double shiftHours = Duration.between(shiftStart, shiftEnd).toMinutes() / 60.0;
+        Duration tolerance = Duration.ofMinutes(5);
+
         double dailySalary = emp.getSalary() / totalDaysInMonth;
-        double perHourRate = dailySalary / 8.0;
+        double perHourRate = dailySalary / shiftHours;
         boolean paidLeaveUsed = false;
+
         double totalSalary = 0.0;
+        double totalOvertimePay = 0.0;
 
         // Group attendances by date
         Map<LocalDate, List<Attendance>> attendanceByDate = monthlyRecords.stream()
                 .collect(Collectors.groupingBy(Attendance::getDate));
 
-        // Iterate through each day
-        for (LocalDate date = yearMonth.atDay(1); !date.isAfter(yearMonth.atEndOfMonth()); date = date.plusDays(1)) {
+        // Iterate through each day in the month
+        for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
+            List<Attendance> dayRecords = attendanceByDate.getOrDefault(date, Collections.emptyList());
             double daySalary = 0.0;
-            List<Attendance> records = attendanceByDate.getOrDefault(date, Collections.emptyList());
 
-            if (records.isEmpty()) {
+            // 🟠 No attendance record
+            if (dayRecords.isEmpty()) {
                 if (holidays.contains(date)) {
-                    daySalary = dailySalary;
+                    daySalary = dailySalary; // Holiday = paid
                 } else if (!paidLeaveUsed) {
-                    daySalary = dailySalary;
                     paidLeaveUsed = true;
-                }
-            } else {
-                // Pick the latest attendance record
-                Attendance a = records.stream()
-                        .max(Comparator.comparing(Attendance::getClockIn, Comparator.nullsLast(Comparator.naturalOrder())))
-                        .orElse(records.get(0));
-
-                double hoursWorked = a.getTotalHours() != null ? a.getTotalHours() : (a.isHalfDay() ? 4.0 : 8.0);
-
-                if (a.isHoliday()) {
-                    daySalary = dailySalary;
-                } else if (!a.isPresent()) {
-                    if (!paidLeaveUsed) {
-                        daySalary = dailySalary;
-                        paidLeaveUsed = true;
-                    }
-                } else if (a.isHalfDay()) {
-                    daySalary = Math.max((hoursWorked - 4) * perHourRate, 0);
+                    daySalary = dailySalary; // Paid leave
                 } else {
-                    daySalary = hoursWorked * perHourRate;
+                    daySalary = 0.0; // Absent
+                }
+                totalSalary += daySalary;
+                continue;
+            }
 
-                    if (a.isOvertimeAllowed() && hoursWorked > 8.0) {
-                        daySalary += (hoursWorked - 8.0) * perHourRate;
+            // Get the latest attendance record (most relevant one)
+            Attendance a = dayRecords.stream()
+                    .max(Comparator.comparing(Attendance::getClockIn, Comparator.nullsLast(Comparator.naturalOrder())))
+                    .orElse(dayRecords.get(0));
+
+            LocalTime empShiftStart = a.getShiftStart() != null ? a.getShiftStart() : shiftStart;
+            LocalTime empShiftEnd = a.getShiftEnd() != null ? a.getShiftEnd() : shiftEnd;
+            double shiftHoursPerDay = Duration.between(empShiftStart, empShiftEnd).toMinutes() / 60.0;
+
+            // ✅ Holiday
+            if (a.isHoliday()) {
+                daySalary = dailySalary;
+            }
+            // ✅ Absent or paid leave
+            else if (!a.isPresent()) {
+                if (!paidLeaveUsed) {
+                    paidLeaveUsed = true;
+                    daySalary = dailySalary;
+                } else {
+                    daySalary = 0.0;
+                }
+            }
+            // ✅ Present cases
+            else {
+                LocalDateTime in = a.getClockIn();
+                LocalDateTime out = a.getClockOut();
+                if (in == null && out == null) {
+                    daySalary = dailySalary;
+                } else if (in != null && out == null) {
+                    daySalary = dailySalary;
+                } else if (in != null && out != null) {
+                    Duration workDuration = Duration.between(in.toLocalTime(), out.toLocalTime());
+                    double workedHours = workDuration.toMinutes() / 60.0;
+
+                    boolean isLateBeyondTolerance = in.toLocalTime().isAfter(empShiftStart.plus(tolerance));
+
+                    // 🌗 Half-day logic
+                    if (a.isHalfDay()) {
+                        double payableHours = Math.min(workedHours, shiftHoursPerDay / 2);
+                        daySalary = payableHours * perHourRate;
+                    }
+                    // ✅ Full-day present
+                    else {
+                        double payableHours = Math.min(workedHours, shiftHoursPerDay);
+
+                        // 💪 Handle overtime
+                        if (a.isOvertimeAllowed() && out.toLocalTime().isAfter(empShiftEnd)) {
+                            double overtimeHours = Duration.between(empShiftEnd, out.toLocalTime()).toMinutes() / 60.0;
+                            double overtimePay = overtimeHours * perHourRate * 1; // multiplier = 1
+                            totalOvertimePay += overtimePay;
+                            daySalary = dailySalary + overtimePay;
+                        } else {
+                            daySalary = Math.min(payableHours * perHourRate, dailySalary);
+                        }
                     }
                 }
             }
@@ -103,7 +151,10 @@ public class SalaryService {
             totalSalary += daySalary;
         }
 
+        // ✅ Add bonus and overtime
         totalSalary += emp.getBonus();
+        totalSalary += totalOvertimePay;
+
         return totalSalary;
     }
 

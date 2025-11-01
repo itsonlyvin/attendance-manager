@@ -179,7 +179,7 @@ public class AttendanceReportService {
                         if (a.isOvertimeAllowed() && outTime.isAfter(shiftEnd)) {
                             double overtimeHours = Duration.between(shiftEnd, outTime).toMinutes() / 60.0;
                             totalOvertimeHours += overtimeHours;
-                            double overtimePay = overtimeHours * perHourRate * 1.5; // 1.5x rate
+                            double overtimePay = overtimeHours * perHourRate * 1;
                             totalOvertimePay += overtimePay;
                             payableHours = shiftHoursPerDay; // keep base salary capped
                             daySalary = dailySalary + overtimePay;
