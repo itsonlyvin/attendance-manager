@@ -31,7 +31,11 @@ public class AttendanceReportService {
         YearMonth yearMonth = YearMonth.of(year, month);
         LocalDate startDate = yearMonth.atDay(1);
         LocalDate endDate = yearMonth.atEndOfMonth();
-        int totalDaysInMonth = yearMonth.lengthOfMonth();
+        int actualDaysInMonth = yearMonth.lengthOfMonth();
+
+        // ✅ Calculate total days based on month
+        int totalDaysInMonth = calculateTotalDaysForSalary(month, year);
+
 
         List<Attendance> allRecords = attendanceRepository.findByEmployeeAndDateBetween(emp, startDate, endDate);
         List<Attendance> allHolidays = attendanceRepository.findByIsHolidayTrueAndDateBetween(startDate, endDate);
@@ -179,7 +183,7 @@ public class AttendanceReportService {
                         if (a.isOvertimeAllowed() && outTime.isAfter(shiftEnd)) {
                             double overtimeHours = Duration.between(shiftEnd, outTime).toMinutes() / 60.0;
                             totalOvertimeHours += overtimeHours;
-                            double overtimePay = overtimeHours * perHourRate * 1;
+                            double overtimePay = overtimeHours * perHourRate * 1; // overtime rate now normal rate
                             totalOvertimePay += overtimePay;
                             payableHours = shiftHoursPerDay; // keep base salary capped
                             daySalary = dailySalary + overtimePay;
@@ -194,6 +198,9 @@ public class AttendanceReportService {
             daily.setSalary(daySalary);
             dailyList.add(daily);
         }
+
+        // ✅ Adjust holiday count for months with different lengths
+        adjustHolidayCountForMonth(actualDaysInMonth, holidayCount, paidLeaveCount);
 
         // ✅ Total salary
         double totalSalaryEarned = dailyList.stream()
@@ -211,13 +218,13 @@ public class AttendanceReportService {
         report.setEmployeeName(emp.getFullName());
         report.setMonth(month);
         report.setYear(year);
-        report.setTotalDays(totalDaysInMonth);
+        report.setTotalDays(totalDaysInMonth); // This will be 30, 28, or 29 based on month
         report.setDaysLeft(daysLeft);
         report.setPresentDays(presentDays);
         report.setHalfDays(halfDays);
         report.setAbsentDays(absentDays);
-        report.setPaidLeave(paidLeaveCount);
-        report.setHolidayCount(holidayCount);
+        report.setPaidLeave(paidLeaveCount); // Use adjusted paidLeaveCount
+        report.setHolidayCount(holidayCount); // Use adjusted holidayCount
         report.setNoClockOutDays(noClockOutDays);
         report.setTotalHoursWorked(totalHoursWorked);
         report.setSalaryEarned(totalSalaryEarned);
@@ -227,6 +234,35 @@ public class AttendanceReportService {
         report.setDailyAttendance(dailyList);
 
         return report;
+    }
+
+    /**
+     * ✅ Calculate total days for salary calculation
+     * - February: 28 or 29 days (based on leap year)
+     * - All other months: 30 days (never 31)
+     */
+    private int calculateTotalDaysForSalary(int month, int year) {
+        if (month == 2) { // February
+            YearMonth yearMonth = YearMonth.of(year, month);
+            return yearMonth.lengthOfMonth(); // 28 or 29
+        } else {
+            return 30; // All other months have 30 days for calculation
+        }
+    }
+
+    /**
+     * ✅ Adjust holiday count based on actual month length
+     * - 31-day months: reduce 1 holiday
+     * - 30-day months: no adjustment
+     * - February (28/29 days): no adjustment
+     */
+    private void adjustHolidayCountForMonth(int actualDaysInMonth, int holidayCount, int paidLeaveCount) {
+        if (actualDaysInMonth == 31 && holidayCount > 0) {
+            holidayCount = Math.max(0, holidayCount - 1);
+            paidLeaveCount = Math.max(0, paidLeaveCount - 1);
+        }
+        // For February (28/29 days) and 30-day months, no adjustment needed
+
     }
 
     // ============================ INNER CLASSES ============================
