@@ -207,11 +207,9 @@ public class AttendanceService {
     ) {
         LocalDate date = LocalDate.of(year, month, day);
 
-        // Fetch the employee
         Employee emp = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
 
-        // Fetch or create attendance
         Attendance attendance = attendanceRepository.findByEmployeeAndDate(emp, date)
                 .orElseGet(() -> {
                     Attendance newAttendance = new Attendance();
@@ -220,29 +218,22 @@ public class AttendanceService {
                     return newAttendance;
                 });
 
-        // Update base details
         attendance.setOvertimeAllowed(allowOvertime);
         attendance.setAdminRemarks(remarks != null ? remarks.trim() : null);
-
-        // Explicitly update presence and half-day
         attendance.setPresent(isPresent);
         attendance.setHalfDay(halfDay);
 
-        // Update clock-in/out if provided
         if (clockIn != null) attendance.setClockIn(clockIn);
         if (clockOut != null) attendance.setClockOut(clockOut);
 
-        // Default late = false
         attendance.setLate(false);
 
-        // Calculate working hours if both times exist
         if (attendance.getClockIn() != null && attendance.getClockOut() != null) {
             double hoursWorked = Duration.between(
                     attendance.getClockIn(), attendance.getClockOut()
             ).toMinutes() / 60.0;
             attendance.setTotalHours(hoursWorked);
 
-            // ✅ Calculate shift duration dynamically
             LocalTime shiftStart = emp.getShiftStart() != null ? emp.getShiftStart() :
                     (emp.isFinOpenArms() ? LocalTime.of(9, 30) : LocalTime.of(9, 0));
 
@@ -251,13 +242,11 @@ public class AttendanceService {
 
             double shiftHours = Duration.between(shiftStart, shiftEnd).toMinutes() / 60.0;
 
-            // ✅ Late detection (5-min tolerance)
             LocalTime clockInTime = attendance.getClockIn().toLocalTime();
             if (clockInTime.isAfter(shiftStart.plusMinutes(5))) {
                 attendance.setLate(true);
             }
 
-            // ✅ Auto-adjust presence/half-day if not forced
             if (isPresent) {
                 if (!halfDay) {
                     if (hoursWorked < shiftHours / 2) {
@@ -270,20 +259,17 @@ public class AttendanceService {
                     }
                 }
             } else {
-                // Marked absent → no salary hours
                 attendance.setHalfDay(false);
                 attendance.setTotalHours(0.0);
             }
         } else {
-            // Missing either clock-in or clock-out → no valid work hours
             attendance.setTotalHours(0.0);
-            if (isPresent && !halfDay) {
-                attendance.setHalfDay(true); // treat as half-day if partial data
-            }
+            // ⚠️ Do not override admin-provided halfDay here
         }
 
         return attendanceRepository.save(attendance);
     }
+
 
 
 

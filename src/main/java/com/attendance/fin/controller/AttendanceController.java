@@ -61,7 +61,7 @@ public class AttendanceController {
             @RequestParam int day,
             @RequestParam boolean allowOvertime,
             @RequestParam boolean isPresent,
-            @RequestParam boolean halfDay, // added halfDay parameter
+            @RequestParam boolean halfDay,
             @RequestParam(required = false) String remarks,
             @RequestParam(required = false) String clockIn,   // format: "yyyy-MM-ddTHH:mm"
             @RequestParam(required = false) String clockOut   // format: "yyyy-MM-ddTHH:mm"
