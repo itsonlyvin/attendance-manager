@@ -173,4 +173,31 @@ public class SalaryService {
         private String employeeName;
         private double salary;
     }
+
+
+    // in SalaryService class
+
+    /**
+     * Public wrapper: calculate salary for single employee id (uses existing private logic).
+     */
+    public double calculateEmployeeSalaryPublic(String employeeId, int year, int month) {
+        Employee emp = employeeRepository.findById(employeeId)
+                .orElseThrow(() -> new RuntimeException("Employee not found: " + employeeId));
+
+        List<Attendance> records = attendanceRepository.findByEmployeeAndDateBetween(
+                emp,
+                YearMonth.of(year, month).atDay(1),
+                YearMonth.of(year, month).atEndOfMonth()
+        );
+
+        // holidays set
+        List<Attendance> holidayRecords = attendanceRepository.findByIsHolidayTrueAndDateBetween(
+                YearMonth.of(year, month).atDay(1),
+                YearMonth.of(year, month).atEndOfMonth()
+        );
+        Set<LocalDate> holidays = holidayRecords.stream().map(Attendance::getDate).collect(Collectors.toSet());
+
+        return calculateEmployeeSalary(emp, records, holidays, year, month);
+    }
+
 }
