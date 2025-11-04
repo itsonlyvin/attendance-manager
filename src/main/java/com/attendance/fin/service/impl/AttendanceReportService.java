@@ -33,9 +33,8 @@ public class AttendanceReportService {
         LocalDate endDate = yearMonth.atEndOfMonth();
         int actualDaysInMonth = yearMonth.lengthOfMonth();
 
-        // ✅ Calculate total days based on month
-        int totalDaysInMonth = calculateTotalDaysForSalary(month, year);
-
+        // ✅ Always divide by 30 for salary calculations
+        int totalDaysForSalary = 30;
 
         List<Attendance> allRecords = attendanceRepository.findByEmployeeAndDateBetween(emp, startDate, endDate);
         List<Attendance> allHolidays = attendanceRepository.findByIsHolidayTrueAndDateBetween(startDate, endDate);
@@ -43,14 +42,13 @@ public class AttendanceReportService {
         Map<LocalDate, List<Attendance>> attendanceByDate = allRecords.stream()
                 .collect(Collectors.groupingBy(Attendance::getDate));
 
-        // ✅ Default shift time
         LocalTime defaultShiftStart = emp.getShiftStart() != null ? emp.getShiftStart() : LocalTime.of(9, 0);
         LocalTime defaultShiftEnd = emp.getShiftEnd() != null ? emp.getShiftEnd() : LocalTime.of(17, 0);
         double shiftHours = Duration.between(defaultShiftStart, defaultShiftEnd).toMinutes() / 60.0;
 
-        double dailySalary = emp.getSalary() / totalDaysInMonth;
+        double dailySalary = emp.getSalary() / totalDaysForSalary;
         double perHourRate = dailySalary / shiftHours;
-        Duration tolerance = Duration.ofMinutes(5); // ✅ 5-min tolerance
+        Duration tolerance = Duration.ofMinutes(5);
 
         int presentDays = 0;
         int halfDays = 0;
@@ -71,7 +69,6 @@ public class AttendanceReportService {
 
             List<Attendance> dayRecords = attendanceByDate.getOrDefault(date, Collections.emptyList());
 
-            // 🟠 No attendance found
             if (dayRecords.isEmpty()) {
                 LocalDate finalDate = date;
                 boolean isHoliday = allHolidays.stream().anyMatch(h -> h.getDate().equals(finalDate));
@@ -138,7 +135,7 @@ public class AttendanceReportService {
                 }
             }
 
-            // ✅ Present cases
+            // ✅ Present
             else {
                 if (a.getClockIn() == null && a.getClockOut() == null) {
                     presentDays++;
@@ -150,7 +147,6 @@ public class AttendanceReportService {
                     daily.setStatus("No Clock-Out");
                     daySalary = dailySalary;
                 } else {
-                    // ✅ Calculate work duration
                     LocalTime inTime = a.getClockIn().toLocalTime();
                     LocalTime outTime = a.getClockOut().toLocalTime();
 
@@ -160,35 +156,28 @@ public class AttendanceReportService {
 
                     boolean isLateBeyondTolerance = inTime.isAfter(shiftStart.plus(tolerance));
 
-                    // 🌗 Half-day logic
                     if (a.isHalfDay()) {
                         halfDays++;
                         daily.setStatus("Half-day");
                         double payableHours = Math.min(workedHours, shiftHoursPerDay / 2);
                         daySalary = payableHours * perHourRate;
-                    }
-                    // ✅ Full-day present
-                    else {
+                    } else {
                         presentDays++;
                         daily.setStatus("Present");
 
-                        // Late tolerance check
                         if (isLateBeyondTolerance) {
                             daily.setLate(true);
                         }
 
                         double payableHours = Math.min(workedHours, shiftHoursPerDay);
 
-                        // 💪 Handle overtime if allowed
                         if (a.isOvertimeAllowed() && outTime.isAfter(shiftEnd)) {
                             double overtimeHours = Duration.between(shiftEnd, outTime).toMinutes() / 60.0;
                             totalOvertimeHours += overtimeHours;
-                            double overtimePay = overtimeHours * perHourRate * 1; // overtime rate now normal rate
+                            double overtimePay = overtimeHours * perHourRate; // 1x rate
                             totalOvertimePay += overtimePay;
-                            payableHours = shiftHoursPerDay; // keep base salary capped
                             daySalary = dailySalary + overtimePay;
                         } else {
-                            // cap salary to full-day max
                             daySalary = Math.min(payableHours * perHourRate, dailySalary);
                         }
                     }
@@ -199,13 +188,16 @@ public class AttendanceReportService {
             dailyList.add(daily);
         }
 
-        // ✅ Adjust holiday count for months with different lengths
-        adjustHolidayCountForMonth(actualDaysInMonth, holidayCount, paidLeaveCount);
-
-        // ✅ Total salary
+        // ✅ Total salary before deductions
         double totalSalaryEarned = dailyList.stream()
                 .mapToDouble(DailyAttendance::getSalary)
                 .sum() + emp.getBonus();
+
+        // ✅ Deduct 1 holiday’s salary if month has 31 days
+        if (actualDaysInMonth == 31) {
+            totalSalaryEarned -= dailySalary;
+            holidayCount = Math.max(0, holidayCount - 1);
+        }
 
         LocalDate today = LocalDate.now();
         int daysLeft = 0;
@@ -218,13 +210,13 @@ public class AttendanceReportService {
         report.setEmployeeName(emp.getFullName());
         report.setMonth(month);
         report.setYear(year);
-        report.setTotalDays(totalDaysInMonth); // This will be 30, 28, or 29 based on month
+        report.setTotalDays(totalDaysForSalary);
         report.setDaysLeft(daysLeft);
         report.setPresentDays(presentDays);
         report.setHalfDays(halfDays);
         report.setAbsentDays(absentDays);
-        report.setPaidLeave(paidLeaveCount); // Use adjusted paidLeaveCount
-        report.setHolidayCount(holidayCount); // Use adjusted holidayCount
+        report.setPaidLeave(paidLeaveCount);
+        report.setHolidayCount(holidayCount);
         report.setNoClockOutDays(noClockOutDays);
         report.setTotalHoursWorked(totalHoursWorked);
         report.setSalaryEarned(totalSalaryEarned);
@@ -234,35 +226,6 @@ public class AttendanceReportService {
         report.setDailyAttendance(dailyList);
 
         return report;
-    }
-
-    /**
-     * ✅ Calculate total days for salary calculation
-     * - February: 28 or 29 days (based on leap year)
-     * - All other months: 30 days (never 31)
-     */
-    private int calculateTotalDaysForSalary(int month, int year) {
-        if (month == 2) { // February
-            YearMonth yearMonth = YearMonth.of(year, month);
-            return yearMonth.lengthOfMonth(); // 28 or 29
-        } else {
-            return 30; // All other months have 30 days for calculation
-        }
-    }
-
-    /**
-     * ✅ Adjust holiday count based on actual month length
-     * - 31-day months: reduce 1 holiday
-     * - 30-day months: no adjustment
-     * - February (28/29 days): no adjustment
-     */
-    private void adjustHolidayCountForMonth(int actualDaysInMonth, int holidayCount, int paidLeaveCount) {
-        if (actualDaysInMonth == 31 && holidayCount > 0) {
-            holidayCount = Math.max(0, holidayCount - 1);
-            paidLeaveCount = Math.max(0, paidLeaveCount - 1);
-        }
-        // For February (28/29 days) and 30-day months, no adjustment needed
-
     }
 
     // ============================ INNER CLASSES ============================
