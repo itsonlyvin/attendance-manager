@@ -52,7 +52,10 @@ public class SalaryService {
         YearMonth yearMonth = YearMonth.of(year, month);
         LocalDate startDate = yearMonth.atDay(1);
         LocalDate endDate = yearMonth.atEndOfMonth();
-        int totalDaysInMonth = yearMonth.lengthOfMonth();
+        int actualDaysInMonth = yearMonth.lengthOfMonth();
+
+        // ✅ Always use 30 days for salary calculation (not actual days)
+        double perDayRate = emp.getSalary() / 30.0;
 
         // Default shift hours
         LocalTime shiftStart = emp.getShiftStart() != null ? emp.getShiftStart() : LocalTime.of(9, 0);
@@ -60,7 +63,7 @@ public class SalaryService {
         double shiftHours = Duration.between(shiftStart, shiftEnd).toMinutes() / 60.0;
         Duration tolerance = Duration.ofMinutes(5);
 
-        double dailySalary = emp.getSalary() / totalDaysInMonth;
+        double dailySalary = perDayRate;
         double perHourRate = dailySalary / shiftHours;
         boolean paidLeaveUsed = false;
 
@@ -138,7 +141,7 @@ public class SalaryService {
                         // 💪 Handle overtime
                         if (a.isOvertimeAllowed() && out.toLocalTime().isAfter(empShiftEnd)) {
                             double overtimeHours = Duration.between(empShiftEnd, out.toLocalTime()).toMinutes() / 60.0;
-                            double overtimePay = overtimeHours * perHourRate * 1; // multiplier = 1
+                            double overtimePay = overtimeHours * perHourRate * 1; // normal multiplier
                             totalOvertimePay += overtimePay;
                             daySalary = dailySalary + overtimePay;
                         } else {
@@ -154,6 +157,11 @@ public class SalaryService {
         // ✅ Add bonus and overtime
         totalSalary += emp.getBonus();
         totalSalary += totalOvertimePay;
+
+        // ✅ Deduct 1 day’s salary if the month has 31 days
+        if (actualDaysInMonth == 31) {
+            totalSalary -= perDayRate;
+        }
 
         return totalSalary;
     }
