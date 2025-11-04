@@ -41,7 +41,7 @@ public class MonthlyReportScheduler {
     private final SalaryService salaryService;
     private final AttendanceReportService attendanceReportService;
 
-    private static final String HR_EMAIL = "vinayak448v@gmail.com";
+    private static final String HR_EMAIL = "openarmsautismschool@gmail.com";
     private static final String FROM_EMAIL = "openarmsautismschool@gmail.com";
     private static final String SENDGRID_API_KEY = System.getenv("SENDGRID_API_KEY");
 
@@ -170,18 +170,16 @@ public class MonthlyReportScheduler {
         document.add(new Paragraph("\n"));
 
         // Table
-        Table table = new Table(UnitValue.createPercentArray(new float[]{3, 1, 1, 1, 1, 1, 1, 1}))
+        Table table = new Table(UnitValue.createPercentArray(new float[]{3, 1, 1, 1, 1, 1, 1}))
                 .useAllAvailableWidth();
 
         table.addHeaderCell(createHeaderCell("Employee Name"));
         table.addHeaderCell(createHeaderCell("Present"));
         table.addHeaderCell(createHeaderCell("Half"));
         table.addHeaderCell(createHeaderCell("Absent"));
-        table.addHeaderCell(createHeaderCell("Holidays"));
         table.addHeaderCell(createHeaderCell("Total Hrs"));
         table.addHeaderCell(createHeaderCell("OT Hrs"));
         table.addHeaderCell(createHeaderCell("Salary (₹)"));
-
 
         double grandTotalSalary = 0.0;
         double grandTotalHours = 0.0;
@@ -201,7 +199,6 @@ public class MonthlyReportScheduler {
             table.addCell(createBodyCell(String.valueOf(report.getPresentDays())));
             table.addCell(createBodyCell(String.valueOf(report.getHalfDays())));
             table.addCell(createBodyCell(String.valueOf(report.getAbsentDays())));
-            table.addCell(createBodyCell(String.valueOf(report.getHolidayCount())));
             table.addCell(createBodyCell(String.format("%.2f", report.getTotalHoursWorked())));
             table.addCell(createBodyCell(String.format("%.2f", report.getTotalOvertimeHours())));
             table.addCell(createBodyCell(String.format("%.2f", salary)));
