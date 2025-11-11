@@ -59,7 +59,7 @@ public class MonthlyReportScheduler {
      */
     @PostConstruct
     public void sendReportOnStartup() {
-        System.out.println("🚀 App started — sending monthly attendance reports automatically...");
+        System.out.println("🚀 App started — sending monthly attendance reports automatically..");
         generateAndSendReports();
     }
 
