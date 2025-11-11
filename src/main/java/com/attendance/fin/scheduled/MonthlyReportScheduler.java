@@ -41,7 +41,7 @@ public class MonthlyReportScheduler {
     private final SalaryService salaryService;
     private final AttendanceReportService attendanceReportService;
 
-    private static final String HR_EMAIL = "openarmsautismschool@gmail.com";
+    private static final String HR_EMAIL ="vinayak448v@gmail.com";
     private static final String FROM_EMAIL = "openarmsautismschool@gmail.com";
     private static final String SENDGRID_API_KEY = System.getenv("SENDGRID_API_KEY");
 

@@ -33,7 +33,7 @@ public class AttendanceReportService {
         LocalDate endDate = yearMonth.atEndOfMonth();
         int actualDaysInMonth = yearMonth.lengthOfMonth();
 
-        // ✅ Always divide by 30 for salary calculations
+        //  Always divide by 30 for salary calculations
         int totalDaysForSalary = 30;
 
         List<Attendance> allRecords = attendanceRepository.findByEmployeeAndDateBetween(emp, startDate, endDate);
@@ -112,7 +112,7 @@ public class AttendanceReportService {
             LocalTime shiftEnd = a.getShiftEnd() != null ? a.getShiftEnd() : defaultShiftEnd;
             double shiftHoursPerDay = Duration.between(shiftStart, shiftEnd).toMinutes() / 60.0;
 
-            // ✅ Handle holidays
+            //  Handle holidays
             if (a.isHoliday()) {
                 holidayCount++;
                 paidLeaveCount++;
@@ -121,7 +121,7 @@ public class AttendanceReportService {
                 daySalary = dailySalary;
             }
 
-            // ✅ Absent or Paid Leave
+            //  Absent or Paid Leave
             else if (!a.isPresent()) {
                 if (!paidLeaveUsed) {
                     paidLeaveUsed = true;
@@ -135,7 +135,7 @@ public class AttendanceReportService {
                 }
             }
 
-            // ✅ Present
+            //  Present
             else {
                 if (a.getClockIn() == null && a.getClockOut() == null) {
                     presentDays++;
@@ -188,12 +188,12 @@ public class AttendanceReportService {
             dailyList.add(daily);
         }
 
-        // ✅ Total salary before deductions
+        //  Total salary before deductions
         double totalSalaryEarned = dailyList.stream()
                 .mapToDouble(DailyAttendance::getSalary)
                 .sum() + emp.getBonus();
 
-        // ✅ Deduct 1 holiday’s salary if month has 31 days
+        //  Deduct 1 holiday’s salary if month has 31 days
         if (actualDaysInMonth == 31) {
             totalSalaryEarned -= dailySalary;
             holidayCount = Math.max(0, holidayCount - 1);
