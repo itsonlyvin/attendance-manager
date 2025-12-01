@@ -33,7 +33,7 @@ public class AttendanceReportService {
         LocalDate endDate = yearMonth.atEndOfMonth();
         int actualDaysInMonth = yearMonth.lengthOfMonth();
 
-        //  Always divide by 30 for salary calculations
+        //  Standard Accounting: Salary is always based on 30 days
         int totalDaysForSalary = 30;
 
         List<Attendance> allRecords = attendanceRepository.findByEmployeeAndDateBetween(emp, startDate, endDate);
@@ -42,14 +42,19 @@ public class AttendanceReportService {
         Map<LocalDate, List<Attendance>> attendanceByDate = allRecords.stream()
                 .collect(Collectors.groupingBy(Attendance::getDate));
 
-        LocalTime defaultShiftStart = emp.getShiftStart() != null ? emp.getShiftStart() : LocalTime.of(9, 0);
-        LocalTime defaultShiftEnd = emp.getShiftEnd() != null ? emp.getShiftEnd() : LocalTime.of(17, 0);
-        double shiftHours = Duration.between(defaultShiftStart, defaultShiftEnd).toMinutes() / 60.0;
+        // Define Shift Timings
+        LocalTime shiftStart = emp.getShiftStart() != null ? emp.getShiftStart() : LocalTime.of(9, 0);
+        LocalTime shiftEnd = emp.getShiftEnd() != null ? emp.getShiftEnd() : LocalTime.of(17, 0);
+        double shiftHours = Duration.between(shiftStart, shiftEnd).toMinutes() / 60.0;
 
+        // Salary Calculations
         double dailySalary = emp.getSalary() / totalDaysForSalary;
         double perHourRate = dailySalary / shiftHours;
+
+        // Tolerance Configuration
         Duration tolerance = Duration.ofMinutes(5);
 
+        // Report Counters
         int presentDays = 0;
         int halfDays = 0;
         int absentDays = 0;
@@ -69,6 +74,9 @@ public class AttendanceReportService {
 
             List<Attendance> dayRecords = attendanceByDate.getOrDefault(date, Collections.emptyList());
 
+            // ---------------------------------------------------
+            // CASE 1: NO RECORDS (Absent / Holiday / Auto Leave)
+            // ---------------------------------------------------
             if (dayRecords.isEmpty()) {
                 LocalDate finalDate = date;
                 boolean isHoliday = allHolidays.stream().anyMatch(h -> h.getDate().equals(finalDate));
@@ -80,7 +88,7 @@ public class AttendanceReportService {
                     daily.setHoliday(true);
                     daily.setSalary(dailySalary);
                 } else if (!paidLeaveUsed) {
-                    paidLeaveUsed = true;
+                    paidLeaveUsed = true; // First absence is Paid Leave
                     paidLeaveCount++;
                     daily.setStatus("Paid Leave (Auto)");
                     daily.setSalary(dailySalary);
@@ -94,6 +102,10 @@ public class AttendanceReportService {
                 continue;
             }
 
+            // ---------------------------------------------------
+            // CASE 2: RECORDS EXIST (Present / Leave / etc)
+            // ---------------------------------------------------
+            // Get the earliest check-in (or max logic based on your previous code)
             Attendance a = dayRecords.stream()
                     .max(Comparator.comparing(Attendance::getClockIn, Comparator.nullsLast(Comparator.naturalOrder())))
                     .orElse(dayRecords.get(0));
@@ -101,18 +113,12 @@ public class AttendanceReportService {
             daily.setClockIn(a.getClockIn());
             daily.setClockOut(a.getClockOut());
             daily.setHalfDay(a.isHalfDay());
-            daily.setLate(a.isLate());
             daily.setOvertimeAllowed(a.isOvertimeAllowed());
             daily.setAdminRemarks(a.getAdminRemarks());
 
             double daySalary = 0.0;
-            double hoursWorked = a.getTotalHours() != null ? a.getTotalHours() : 0.0;
 
-            LocalTime shiftStart = a.getShiftStart() != null ? a.getShiftStart() : defaultShiftStart;
-            LocalTime shiftEnd = a.getShiftEnd() != null ? a.getShiftEnd() : defaultShiftEnd;
-            double shiftHoursPerDay = Duration.between(shiftStart, shiftEnd).toMinutes() / 60.0;
-
-            //  Handle holidays
+            // Handle Explicit Holidays/Leaves in records
             if (a.isHoliday()) {
                 holidayCount++;
                 paidLeaveCount++;
@@ -120,8 +126,6 @@ public class AttendanceReportService {
                 daily.setHoliday(true);
                 daySalary = dailySalary;
             }
-
-            //  Absent or Paid Leave
             else if (!a.isPresent()) {
                 if (!paidLeaveUsed) {
                     paidLeaveUsed = true;
@@ -134,50 +138,81 @@ public class AttendanceReportService {
                     daySalary = 0.0;
                 }
             }
-
-            //  Present
+            // Handle PRESENT records
             else {
+                // --- SUB-CASE: Manual Entry (No times) ---
                 if (a.getClockIn() == null && a.getClockOut() == null) {
                     presentDays++;
-                    daily.setStatus("Present");
+                    daily.setStatus("Present (Manual)");
                     daySalary = dailySalary;
-                } else if (a.getClockIn() != null && a.getClockOut() == null) {
-                    presentDays++;
+                }
+
+                // --- SUB-CASE: No Clock Out -> ZERO PAY ---
+                else if (a.getClockIn() != null && a.getClockOut() == null) {
+                    presentDays++; // Count as present for attendance
                     noClockOutDays++;
-                    daily.setStatus("No Clock-Out");
-                    daySalary = dailySalary;
-                } else {
-                    LocalTime inTime = a.getClockIn().toLocalTime();
-                    LocalTime outTime = a.getClockOut().toLocalTime();
+                    daily.setStatus("No Clock-Out (Zero Pay)");
+                    daySalary = 0.0; // STRICT RULE: 0 Salary
+                }
 
-                    Duration workDuration = Duration.between(inTime, outTime);
-                    double workedHours = workDuration.toMinutes() / 60.0;
+                // --- SUB-CASE: Normal Logic (Clock In & Out exist) ---
+                else {
+                    LocalTime actualIn = a.getClockIn().toLocalTime();
+                    LocalTime actualOut = a.getClockOut().toLocalTime();
+
+                    // --- TOLERANCE LOGIC START ---
+                    // Determine Effective Start Time
+                    LocalTime effectiveIn = actualIn;
+                    boolean isLate = false;
+
+                    // Logic: If ActualIn is AFTER ShiftStart
+                    if (actualIn.isAfter(shiftStart)) {
+                        // Check if within 5 mins tolerance (e.g., 9:32 <= 9:35)
+                        if (actualIn.isBefore(shiftStart.plus(tolerance).plusSeconds(1))) {
+                            // WAIVE LATENESS: Snap time back to 9:30
+                            effectiveIn = shiftStart;
+                            isLate = false;
+                        } else {
+                            // REAL LATE: Use actual time (9:40 stays 9:40)
+                            // Note: You can choose to use 'shiftStart' here too if you pay for full day despite lateness,
+                            // but usually lateness affects worked hours calculation.
+                            isLate = true;
+                        }
+                    } else {
+                        // Early arrival (9:15) -> Count from 9:30
+                        effectiveIn = shiftStart;
+                    }
+
+                    daily.setLate(isLate); // Set the flag for UI
+                    // --- TOLERANCE LOGIC END ---
+
+                    // Calculate Duration using EFFECTIVE In time
+                    Duration workDuration = Duration.between(effectiveIn, actualOut);
+                    double workedHours = Math.max(0, workDuration.toMinutes() / 60.0); // Prevent negative
                     totalHoursWorked += workedHours;
-
-                    boolean isLateBeyondTolerance = inTime.isAfter(shiftStart.plus(tolerance));
 
                     if (a.isHalfDay()) {
                         halfDays++;
                         daily.setStatus("Half-day");
-                        double payableHours = Math.min(workedHours, shiftHoursPerDay / 2);
+                        double payableHours = Math.min(workedHours, shiftHours / 2);
                         daySalary = payableHours * perHourRate;
                     } else {
                         presentDays++;
                         daily.setStatus("Present");
 
-                        if (isLateBeyondTolerance) {
-                            daily.setLate(true);
-                        }
+                        double payableHours = Math.min(workedHours, shiftHours); // Cap normal hours
 
-                        double payableHours = Math.min(workedHours, shiftHoursPerDay);
-
-                        if (a.isOvertimeAllowed() && outTime.isAfter(shiftEnd)) {
-                            double overtimeHours = Duration.between(shiftEnd, outTime).toMinutes() / 60.0;
+                        // Overtime Logic
+                        if (a.isOvertimeAllowed() && actualOut.isAfter(shiftEnd)) {
+                            double overtimeHours = Duration.between(shiftEnd, actualOut).toMinutes() / 60.0;
                             totalOvertimeHours += overtimeHours;
-                            double overtimePay = overtimeHours * perHourRate; // 1x rate
+
+                            double overtimePay = overtimeHours * perHourRate; // 1x Rate
                             totalOvertimePay += overtimePay;
+
                             daySalary = dailySalary + overtimePay;
                         } else {
+                            // Normal Day Pay (Capped at Daily Salary)
                             daySalary = Math.min(payableHours * perHourRate, dailySalary);
                         }
                     }
@@ -188,21 +223,32 @@ public class AttendanceReportService {
             dailyList.add(daily);
         }
 
-        //  Total salary before deductions
+        // ---------------------------------------------------
+        // FINAL TOTALS & 31-DAY ADJUSTMENT
+        // ---------------------------------------------------
+
         double totalSalaryEarned = dailyList.stream()
                 .mapToDouble(DailyAttendance::getSalary)
                 .sum() + emp.getBonus();
 
-        //  Deduct 1 holiday’s salary if month has 31 days
-        if (actualDaysInMonth == 31) {
-            totalSalaryEarned -= dailySalary;
-            holidayCount = Math.max(0, holidayCount - 1);
+        // Count effectively paid days (Present + Leaves + Holidays + HalfDays)
+        double totalPaidDaysCount = presentDays + paidLeaveCount + holidayCount + (halfDays * 0.5);
+
+        // SMART 31-DAY DEDUCTION:
+        // Only deduct if it's a 31-day month AND the employee earned > 30 days pay.
+        // This protects new joiners or unpaid leave takers from unfair deductions.
+        if (actualDaysInMonth == 31 && totalPaidDaysCount > 30) {
+            if (holidayCount > 0) {
+                holidayCount--;             // Reduce 1 holiday from the count
+                totalSalaryEarned -= dailySalary; // Reduce 1 day salary
+            }
         }
 
+        // Days left in current month (for current month report)
         LocalDate today = LocalDate.now();
         int daysLeft = 0;
         if (today.getYear() == year && today.getMonthValue() == month) {
-            daysLeft = endDate.getDayOfMonth() - today.getDayOfMonth();
+            daysLeft = Math.max(0, endDate.getDayOfMonth() - today.getDayOfMonth());
         }
 
         AttendanceReport report = new AttendanceReport();

@@ -23,9 +23,9 @@ public class ConnectionMonitorService {
     @Value("${sendgrid.from-email}")
     private String fromEmail;
 
-    private final String toEmail = "vinayak448v@gmail.com"; // recipient
+    private final String toEmail = "vinayak448v@gmail.com";
 
-    private final int WARNING_THRESHOLD = 50; // adjust based on your Supabase tier
+    private final int WARNING_THRESHOLD = 50;
 
     public ConnectionMonitorService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -35,7 +35,7 @@ public class ConnectionMonitorService {
     @PostConstruct
     public void testEmail() {
         System.out.println("Testing SendGrid email...");
-        sendAlertEmail(99); // test value
+        sendAlertEmail(99);
     }
 
     // Scheduled task to check active connections every 1 minute

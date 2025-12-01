@@ -6,11 +6,9 @@ import com.attendance.fin.repository.AttendanceRepository;
 import com.attendance.fin.repository.EmployeeRepository;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.YearMonth;
-import java.util.ArrayList;
-import java.util.List;
+import java.time.*;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class AttendanceMonthlyDetailService {
@@ -32,50 +30,136 @@ public class AttendanceMonthlyDetailService {
         LocalDate startDate = yearMonth.atDay(1);
         LocalDate endDate = yearMonth.atEndOfMonth();
 
-        // Fetch all attendance records for that employee in the month
-        List<Attendance> attendances = attendanceRepository.findByEmployeeAndDateBetween(emp, startDate, endDate);
+        // 1. Fetch Data & Holidays
+        List<Attendance> allRecords = attendanceRepository.findByEmployeeAndDateBetween(emp, startDate, endDate);
+        List<Attendance> allHolidays = attendanceRepository.findByIsHolidayTrueAndDateBetween(startDate, endDate);
+
+        // Group by Date to handle multiple punches efficiently
+        Map<LocalDate, List<Attendance>> attendanceByDate = allRecords.stream()
+                .collect(Collectors.groupingBy(Attendance::getDate));
+
+        // 2. Setup Configuration (Shift & Tolerance)
+        LocalTime shiftStart = emp.getShiftStart() != null ? emp.getShiftStart() : LocalTime.of(9, 0);
+        Duration tolerance = Duration.ofMinutes(5);
 
         List<DailyAttendance> monthlyAttendance = new ArrayList<>();
 
+        // Counters
         int presentCount = 0;
         int absentCount = 0;
         int halfDayCount = 0;
         int holidayCount = 0;
         int paidLeaveCount = 0;
+        int noClockOutCount = 0;
+        boolean paidLeaveUsed = false; // To track the "Auto Paid Leave" logic
 
+        // 3. Iterate through every day of the month
         for (int day = 1; day <= yearMonth.lengthOfMonth(); day++) {
             LocalDate date = yearMonth.atDay(day);
-            Attendance attendance = attendances.stream()
-                    .filter(a -> a.getDate().equals(date))
-                    .findFirst()
-                    .orElse(null);
-
             DailyAttendance daily = new DailyAttendance();
             daily.setDate(date);
 
-            if (attendance == null) {
-                daily.setStatus("No Data");
-            } else if (attendance.isHoliday()) {
-                daily.setStatus("Holiday");
-                holidayCount++;
-            } else if (attendance.isHalfDay()) {
-                daily.setStatus("Half-day");
-                halfDayCount++;
-            } else if (attendance.isPresent()) {
-                daily.setStatus("Present");
-                presentCount++;
-            } else {
-                daily.setStatus("Absent");
-                absentCount++;
+            List<Attendance> dayRecords = attendanceByDate.getOrDefault(date, Collections.emptyList());
+
+            // --- CASE A: NO DATA (Absent / Holiday) ---
+            if (dayRecords.isEmpty()) {
+                LocalDate finalDate = date;
+                boolean isHoliday = allHolidays.stream().anyMatch(h -> h.getDate().equals(finalDate));
+
+                if (isHoliday) {
+                    daily.setStatus("Holiday");
+                    holidayCount++;
+                } else if (!paidLeaveUsed) {
+                    // Logic: First non-holiday absence is Auto Paid Leave
+                    paidLeaveUsed = true;
+                    paidLeaveCount++;
+                    daily.setStatus("Paid Leave (Auto)");
+                } else {
+                    daily.setStatus("Absent");
+                    absentCount++;
+                }
+                monthlyAttendance.add(daily);
+                continue;
             }
 
-            // ✅ Fill extended details if record exists
-            if (attendance != null) {
-                daily.setClockIn(attendance.getClockIn());
-                daily.setClockOut(attendance.getClockOut());
-                daily.setAdminRemarks(attendance.getAdminRemarks());
-                daily.setTotalHours(attendance.getTotalHours());
-                daily.setOvertimeEnabled(attendance.isOvertimeAllowed());
+            // --- CASE B: DATA EXISTS ---
+            // Get the relevant record (Earliest Clock In logic)
+            Attendance a = dayRecords.stream()
+                    .max(Comparator.comparing(Attendance::getClockIn, Comparator.nullsLast(Comparator.naturalOrder())))
+                    .orElse(dayRecords.get(0));
+
+            daily.setClockIn(a.getClockIn());
+            daily.setClockOut(a.getClockOut());
+            daily.setAdminRemarks(a.getAdminRemarks());
+            daily.setOvertimeEnabled(a.isOvertimeAllowed());
+
+            // 1. Holiday Record
+            if (a.isHoliday()) {
+                daily.setStatus("Holiday");
+                holidayCount++;
+            }
+            // 2. Leave Record (Present = false)
+            else if (!a.isPresent()) {
+                if (!paidLeaveUsed) {
+                    paidLeaveUsed = true;
+                    paidLeaveCount++;
+                    daily.setStatus("Paid Leave (Auto)");
+                } else {
+                    daily.setStatus("Absent");
+                    absentCount++;
+                }
+            }
+            // 3. Present Record
+            else {
+                // Manual Entry Check
+                if (a.getClockIn() == null && a.getClockOut() == null) {
+                    daily.setStatus("Present (Manual)");
+                    presentCount++;
+                }
+                // No Clock Out Check
+                else if (a.getClockIn() != null && a.getClockOut() == null) {
+                    daily.setStatus("No Clock-Out");
+                    noClockOutCount++;
+                    // Note: In detailed view, we often count them as present visually,
+                    // but the salary service gives them 0 pay.
+                    presentCount++;
+                }
+                // Normal Punch
+                else {
+                    LocalTime actualIn = a.getClockIn().toLocalTime();
+                    LocalTime actualOut = a.getClockOut().toLocalTime();
+
+                    // --- TOLERANCE LOGIC ---
+                    LocalTime effectiveIn = actualIn;
+                    boolean isLate = false;
+
+                    if (actualIn.isAfter(shiftStart)) {
+                        // If within 5 mins, snap to start time
+                        if (actualIn.isBefore(shiftStart.plus(tolerance).plusSeconds(1))) {
+                            effectiveIn = shiftStart;
+                            isLate = false;
+                        } else {
+                            isLate = true;
+                        }
+                    } else {
+                        effectiveIn = shiftStart; // Early arrival
+                    }
+
+                    daily.setLate(isLate); // Update DTO
+
+                    // Calculate Hours based on EFFECTIVE time (matches Salary Report)
+                    Duration workDuration = Duration.between(effectiveIn, actualOut);
+                    double totalHours = Math.max(0, workDuration.toMinutes() / 60.0);
+                    daily.setTotalHours(totalHours);
+
+                    if (a.isHalfDay()) {
+                        daily.setStatus("Half-day");
+                        halfDayCount++;
+                    } else {
+                        daily.setStatus("Present");
+                        presentCount++;
+                    }
+                }
             }
 
             monthlyAttendance.add(daily);
@@ -89,6 +173,9 @@ public class AttendanceMonthlyDetailService {
         report.setTotalHalfDay(halfDayCount);
         report.setTotalHoliday(holidayCount);
         report.setTotalPaidLeave(paidLeaveCount);
+        report.setTotalNoClockOut(noClockOutCount);
+
+        // Working days usually excludes holidays
         report.setTotalWorkingDays(yearMonth.lengthOfMonth() - holidayCount);
 
         return report;
@@ -103,15 +190,16 @@ public class AttendanceMonthlyDetailService {
         private String adminRemarks;
         private Double totalHours;
         private Boolean overtimeEnabled;
+        private Boolean late; // Added this field for UI
 
-        // ✅ Derived human-readable duration
+
         public String getWorkedDurationFormatted() {
-            if (totalHours == null) return null;
+            if (totalHours == null || totalHours == 0) return "-";
 
             int hours = totalHours.intValue();
             int minutes = (int) Math.round((totalHours - hours) * 60);
 
-            if (minutes == 60) { // edge case
+            if (minutes == 60) {
                 hours += 1;
                 minutes = 0;
             }
@@ -140,6 +228,9 @@ public class AttendanceMonthlyDetailService {
 
         public Boolean getOvertimeEnabled() { return overtimeEnabled; }
         public void setOvertimeEnabled(Boolean overtimeEnabled) { this.overtimeEnabled = overtimeEnabled; }
+
+        public Boolean getLate() { return late; }
+        public void setLate(Boolean late) { this.late = late; }
     }
 
     public static class MonthlyAttendanceReport {
@@ -150,6 +241,7 @@ public class AttendanceMonthlyDetailService {
         private int totalHoliday;
         private int totalPaidLeave;
         private int totalWorkingDays;
+        private int totalNoClockOut; // Added for summary
 
         public List<DailyAttendance> getDays() { return days; }
         public void setDays(List<DailyAttendance> days) { this.days = days; }
@@ -171,5 +263,8 @@ public class AttendanceMonthlyDetailService {
 
         public int getTotalWorkingDays() { return totalWorkingDays; }
         public void setTotalWorkingDays(int totalWorkingDays) { this.totalWorkingDays = totalWorkingDays; }
+
+        public int getTotalNoClockOut() { return totalNoClockOut; }
+        public void setTotalNoClockOut(int totalNoClockOut) { this.totalNoClockOut = totalNoClockOut; }
     }
 }
